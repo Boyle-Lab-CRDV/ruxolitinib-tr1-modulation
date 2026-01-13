@@ -1,0 +1,530 @@
+---
+title: "Rux CD4"
+author: "Damian Oyong"
+date: "2025-07-10"
+output: html_document
+---
+
+scRNAseq was done on sorted ex vivo and AIM+ CD4 T cells on 10X 5' kit. Both GEX and TCR libraries were prepared and sequenced.
+
+Rename barcode column to match Seurat object data
+
+# Libraries
+```{r echo=F}
+library(Seurat)
+library(cowplot)
+library(scRepertoire)
+library(data.table)
+library(dplyr)
+library(tidyr)
+library(gtools)
+library(ggraph)
+library(purrr)
+library(tibble)
+library(circlize)
+library(viridis)
+library(ggalluvial)
+library(RColorBrewer)
+library(ggpubr)
+library(rstatix)
+# library(monocle3)
+library(SeuratWrappers)
+library(aplot)
+library(stringr)
+pacman::p_load(tidyr, dplyr, circlize)
+library(wesanderson)
+```
+
+# Functions
+```{r echo=F}
+data_path <- "/working_groups/boylelab/shared/Damian_Oyong/HPC_folder/analysis/Rux_CD4/Rux_scRNAseq_CD4/"
+cd4_path <- "/working_groups/boylelab/shared/Damian_Oyong/HPC_folder/analysis/Rux_CD4/Rux_scRNAseq_CD4/figures/"
+
+# Convenience functions
+SaveFigure <- function(plots, name, type = "png", width, height, res, fig_path){
+  if(type == "png") {
+    png(paste0(fig_path, name, ".", type),
+      width = width, height = height, units = "in", res = 200)
+  } else {
+    pdf(paste0(fig_path, name, ".", type),
+      width = width, height = height)
+}
+print(plots)
+dev.off()
+}
+
+SaveObject <- function(object, name){
+  saveRDS(object, paste0(data_path, name, ".RDS"))
+}
+
+ReadObject <- function(name){
+  readRDS(paste0(data_path, name, ".RDS"))
+}
+
+qual_col_pals <- brewer.pal.info[brewer.pal.info$category == 'qual',]
+MPColorList <- unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+wesanderson_col <- unname(unlist(wes_palettes))
+```
+
+# This is the default cluster colors and orders
+```{r}
+cluster_col <- c(
+  "Th17"           = "#87D7A2", 
+  "Th1"            = "#F1D0C0",
+  "Tfh"            = "#8CBDE0", 
+  "Tcm"            = "#EAA7C4", 
+  "Tr1"            = "#E58AB1", 
+  "cycling"        = "#F2B996", 
+  "Tregs"          = "#C8E0C4", 
+  "Th2"            = "#F9D37E", 
+  "ISGs"           = "#F4A87F", 
+  "HSP.stress"     = "#D6E29D",  
+  "AIM.Activated.CD4"   = "#f08989",  # soft red
+  "AIM.Tfh"             = "#5C8ED9",  # soft blue
+  "AIM.Th1"             = "#61B86D",  # soft purple
+  "AIM.Tr1"             = "#EEDD6E",  # soft yellow
+  "AIM.Th17"            = "#E68DB7",  # soft brown
+  "AIM.ISGs"            = "#63B2AA",  # soft teal/cyan
+  "AIM.Treg"            = "#9AA6D1",  # soft lavender-blue
+  "AIM.Th2"             = "#BFD77B"   # soft light green
+)
+
+cluster_orders <- c("Th17","Th1","Tfh", "Tcm", "Tr1","cycling","Tregs",
+                    "Th2","ISGs", "HSP.stress","AIM.Activated.CD4", "AIM.Tfh",
+                    "AIM.Th1","AIM.Tr1", "AIM.Th17","AIM.ISGs","AIM.Treg", "AIM.Th2")
+
+donor_col <- c("D411"="#E76F51", "D390"="#2A9D8F", "D591"="#E9C46A", "D622" = "#264653",
+               "D577"="#F4A261", "D664"="#8AB17D", "D245"="#577590", "D284" = "#B56576")
+```
+
+
+
+# Import VDJ data and create scRepertoire df
+```{r}
+setwd("/working_groups/boylelab/shared/Damian_Oyong/HPC_folder/analysis/Rux_CD4/Rux_scRNAseq_CD4/")
+
+file.names <- list.files(pattern = 'filtered_contig_annotations.csv', recursive = TRUE)
+file.names <- file.names[-1] # Exclude the AGGR folder
+names <- list.files(path='cell_ranger/VDJ_Only_Run')
+names <- names[-1] # Exclude the AGGR folder
+
+file_seq <- 1:length(file.names)
+
+if(any(grepl("*.csv", file.names))==TRUE){
+  rux_tcr <- file.names %>% 
+    lapply(., function(i){
+      fread(input = i)
+    }) %>%
+    setNames(names)
+}
+
+# Build a sample info table with index per group
+sample_info <- tibble(
+  sample_name = names(rux_tcr),
+  group = ifelse(str_detect(names(rux_tcr), "_AIM"), "aim", "cd4")
+) %>%
+  group_by(group) %>%
+  mutate(group_index = row_number()) %>%
+  ungroup()
+
+# Map using index to line up with list order
+rux_tcr <- imap(rux_tcr, function(df, name) {
+  info <- sample_info %>% filter(sample_name == name)
+  prefix <- paste0(info$group, "_")
+  suffix <- paste0("_", info$group_index)
+
+  df %>%
+    mutate(barcode = paste0(prefix, barcode, suffix))
+})
+
+names <- names(rux_tcr)
+
+rux_tcr <- combineTCR(rux_tcr,
+                       samples = names,
+                       removeNA = TRUE,
+                       removeMulti = TRUE,
+                       filterMulti = TRUE)
+
+rux_tcr <- imap(rux_tcr, function(df, names) {
+  df %>%
+    mutate(barcode = str_remove(barcode, paste0("^", names, "_")))
+})
+```
+
+The TCR object includes AIM_exp2, but I think this should not impact combining the objects.
+
+# Import Seurat
+```{r}
+rux_cd4 <- readRDS("3_rux.cd4_rux.aim_merged_SCTbyperson_harmonybyperson_remc10_cluster.id.FINAL.rds")
+```
+
+# Combine VDJ and Seurat
+```{r}
+rux_comb <- combineExpression(rux_tcr, rux_cd4,
+                              cloneCall="aa", 
+                              proportion = FALSE,
+                              cloneSize=c(Single=1, Small=5, Medium=20, Large=100, Hyperexpanded=500))
+```
+
+# How many cells:TCR
+```{r}
+cell.prop <- rux_comb@meta.data %>% 
+  mutate(TCR = case_when(is.na(CTaa) == TRUE ~ "No",
+                         TRUE ~ "Yes"))
+```
+
+# Re-edit annotation
+Update 6 October 2025
+Re-edit some of the annotations
+
+```{r}
+rux_comb@meta.data <- rux_comb@meta.data %>% 
+  rename(cluster.id.old = cluster.id) %>% # cluster.id is now cluster.id.old
+  mutate(cluster.id = 
+           case_when(
+             cluster.id.old == "Activated.Th1" ~ "Th1",
+             cluster.id.old == "cycling" ~ "cycling",
+             cluster.id.old == "Cytotoxic.GNLY" ~ "Th1",
+             cluster.id.old == "Cytotoxic.int" ~ "Th1",
+             cluster.id.old == "HSP.stress" ~ "HSP.stress",
+             cluster.id.old == "ISGs" ~ "ISGs",
+             cluster.id.old == "Tcm" ~ "Tcm",
+             cluster.id.old == "Tfh" ~ "Tfh",
+             cluster.id.old == "Tfh.ID3" ~ "Tfh",
+             cluster.id.old == "Tfh.Th17" ~ "Tfh",
+             cluster.id.old == "Th17" ~ "Th17",
+             cluster.id.old == "Th17.CCL20" ~ "Th17",
+             cluster.id.old == "Th17.Th1" ~ "Th1",
+             cluster.id.old == "Th2" ~ "Th2",
+             cluster.id.old == "Tr1" ~ "Tr1",
+             cluster.id.old == "Tregs" ~ "Tregs",
+             cluster.id.old == "AIM.Activated.CD4" ~ "AIM.Activated.CD4",
+             cluster.id.old == "AIM.Tfh" ~ "AIM.Tfh",
+             cluster.id.old == "AIM.Th1" ~ "AIM.Th1",
+             cluster.id.old == "AIM.Tr1" ~ "AIM.Tr1",
+             cluster.id.old == "AIM.Tfh.CXCL13" ~ "AIM.Tfh",
+             cluster.id.old == "AIM.ISGs.CXCL10" ~ "AIM.ISGs",
+             cluster.id.old == "AIM.Th17.Th22" ~ "AIM.Th17",
+             cluster.id.old == "AIM.Cytotoxic.GNLY" ~ "AIM.Th1",
+             cluster.id.old == "AIM.ISGs.IFI27" ~ "AIM.ISGs",
+             cluster.id.old == "AIM.Th17" ~ "AIM.Th17",
+             cluster.id.old == "AIM.Treg" ~ "AIM.Treg",
+             cluster.id.old == "AIM.Th2" ~ "AIM.Th2",
+             TRUE ~ cluster.id.old))
+
+rux_comb@meta.data <- rux_comb@meta.data %>% 
+  mutate(cluster.id = factor(cluster.id, levels = cluster_orders))
+```
+
+Add metadata variables
+```{r}
+rux_comb@meta.data <- rux_comb@meta.data %>%
+  mutate(cloneN = case_when(clonalFrequency == 1 ~ "1",
+                            clonalFrequency == 2 ~ "2",
+                            clonalFrequency == 3 ~ "3",
+                            clonalFrequency == 4 ~ "4",
+                            clonalFrequency > 4 ~ ">4"),
+         cell_id = rownames(.),
+         AIM = case_when(grepl("aim", cell_id) ~ "AIM", 
+                         TRUE ~ "Bulk")) %>%
+  mutate(cloneN = factor(cloneN, levels = c('1','2','3','4','>4')),
+         AIM = factor(AIM, levels = c("Bulk","AIM")))
+
+rux_comb@meta.data <- rux_comb@meta.data %>%
+  mutate(cloneN2 = case_when(clonalFrequency == 1 ~ "Clone # (N=1)",
+                               clonalFrequency > 1 ~ "Clone # (N>1)")) %>%
+  mutate(cloneN2 = factor(cloneN2, levels = c('Clone # (N=1)','Clone # (N>1)')),
+         timepoint = factor(timepoint, levels = c("I","T","T+3","T+7","T+20","rI","rT","rT+3","rT+7","rT+20")))
+```
+
+Checking proportion of cells with/out TCR
+NOTE: We used stringent TCR calling on removing NAs, Multis, and only those with paired Alpha/Beta chains
+The stringent setting can be modified, but looking at this data, it should be sufficient
+```{r}
+cell.prop <- rux_comb@meta.data %>% 
+  mutate(TCR = case_when(is.na(CTaa) == TRUE ~ "No",
+                         TRUE ~ "Yes")) %>% 
+  group_by(TCR, AIM) %>%
+  summarise(n = n()) %>%
+  # group_by(seurat_clusters) %>%
+  group_by(AIM) %>% 
+  mutate(total = sum(n)) %>%
+  mutate(prop = n/total*100)
+print(cell.prop)
+
+plot <- ggplot(cell.prop, aes(x = TCR, y = prop))+
+  geom_col(fill = "white", color = "black")+
+  geom_text(aes(label= round(prop,2), y = prop), vjust=-1)+
+  theme_classic()+
+  ylab("Proportion (%)")+
+  scale_y_continuous(expand = expansion(mult = 0.1))+
+  theme(axis.title.x = element_blank())+
+  facet_wrap(~AIM)
+SaveFigure(plot, "TCR_prop", width = 5, height = 5, type = "pdf", fig_path = cd4_path)
+```
+
+We have 77316 cells for ex-vivo and 10960 cells for AIM samples for a total 88276 cells.
+We have about ~60% of cells with TCR data. I think that's pretty good.
+
+````{r}
+rux_comb@meta.data %>% 
+  filter(., !is.na(CTaa)) %>% 
+  pull(CTaa) %>% 
+  n_distinct()
+```
+
+A total of 73514 unique clones
+
+
+# Figure 7
+## Figure 7C
+
+```{r}
+clone_prop <- rux_comb@meta.data %>% 
+  filter(., !is.na(CTaa)) %>% 
+  select(., c(person, AIM, timepoint, treatment, CTaa, cloneN)) %>% 
+  remove_rownames() %>% 
+  group_by(person, timepoint, AIM, treatment) %>% 
+  mutate(total_n = n()) %>% 
+  count(cloneN, total_n, name = "n_per_cat") %>% 
+  mutate(prop = n_per_cat / total_n) %>% 
+  ungroup()
+
+plot <- ggplot(filter(clone_prop, AIM == "AIM"), 
+               aes(x = timepoint, y = n_per_cat, fill = cloneN)) +
+  geom_col(position = "fill")+
+  theme_classic()+
+  scale_fill_manual(values = c("grey","#ABDDA4", "#66C2A5", "#3288BD", "#5E4FA2"))+
+  labs(y = "Count")+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle=90, hjust = 1, vjust = 0.5))
+SaveFigure(plot, "barplot.all_prop_cloneN_tp_AIMonly", type = "pdf", width = 4, height = 3, fig_path = cd4_path)
+```
+
+## Figure 7D
+AIM Only and T+7 and rT+3 only.
+Count
+```{r}
+plot <- ggplot(filter(rux_comb@meta.data, !is.na(cloneN) & 
+                        AIM == "AIM" & timepoint %in% c("T+7","rT+3")), 
+       aes(x = cluster.id, fill = cloneN))+
+  geom_bar(colour = "black", position = position_stack(reverse = TRUE), linewidth = 0.3)+
+  theme_classic()+
+  scale_fill_manual(values = c("grey","#ABDDA4", "#66C2A5", "#3288BD", "#5E4FA2"))+
+  labs(y = "Count")+
+  theme(axis.title.x = element_blank(),
+        axis.text.x = element_text(angle=90, hjust = 1, vjust = 0.5))+
+  facet_wrap(~timepoint, scales = "free_y")
+SaveFigure(plot, "AIM_barplot_cloneN", type = "pdf", width = 6, height = 3.5, fig_path = cd4_path)
+```
+
+## Figure 7E/F
+```{r}
+clone_track <- rux_comb@meta.data %>%
+  filter(., !is.na(CTaa)) %>% 
+  group_by(person, timepoint, AIM) %>% 
+  mutate(total_n = n()) %>% 
+  count(CTaa, total_n, name = "n_per_cat") %>% 
+  mutate(prop = n_per_cat / total_n) %>% 
+  mutate(timepoint = factor(timepoint, 
+                            levels = c("I","T","T+3","T+7","T+20","rI","rT","rT+3","rT+7","rT+20"))) %>% 
+  group_by(timepoint, AIM, CTaa) %>% 
+  summarise(prop = mean(prop))
+
+plot <- ggplot(filter(clone_track, AIM == "AIM" & CTaa %in% aim_only), 
+                aes(x = timepoint, y = prop,
+                    stratum = CTaa,
+                    alluvium = CTaa,
+                    fill = CTaa))+
+  ggtitle(paste0("AIM"))+
+  labs(fill = "AIM-only CTaa", y = "Proportion")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(linetype = "dashed"))+
+  geom_stratum()+
+  geom_flow()+
+  scale_fill_manual(values = clone_cols)
+SaveFigure(plot, "clone_trac_prop_AIM.aim.only", type = "pdf", width = 10, height = 5, fig_path = cd4_path) 
+
+plot <- ggplot(filter(clone_track, AIM == "Bulk" & CTaa %in% top3_aim), 
+                aes(x = timepoint, y = prop,
+                    stratum = CTaa,
+                    alluvium = CTaa,
+                    fill = CTaa))+
+  ggtitle(paste0("Bulk"))+
+  labs(fill = "Top AIM CTaa", y = "Proportion")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(linetype = "dashed"))+
+  geom_stratum()+
+  geom_flow()+
+  scale_fill_manual(values = clone_cols)
+SaveFigure(plot, "clone_trac_prop_bulk.top3aim", type = "pdf", width = 10, height = 5, fig_path = cd4_path) 
+```
+
+## Figure 7G
+```{r}
+df1 <- rux_comb@meta.data %>% 
+  filter(., AIM == "Bulk") %>% 
+  filter(., !person %in% c("D390","D664")) %>%  # They didn't have AIM data, we exclude from matching with Bulk
+  mutate(aimn2 = ifelse(CTaa %in% aim_n2, "Yes", "No")) %>% 
+  group_by(person, treatment, timepoint, cluster.id, aimn2) %>% 
+  summarise(n = n()) %>% 
+  group_by(person, treatment, timepoint, aimn2) %>% 
+  mutate(n_aim = sum(n)) %>% 
+  group_by(person, treatment, timepoint, cluster.id) %>% 
+  mutate(total_clust = sum(n)) %>% 
+  group_by(person, treatment, timepoint) %>% 
+  mutate(total = sum(n)) %>% 
+  ungroup() %>% 
+  mutate(prop_n = n/total,
+         prop_clust = n/total_clust,
+         prop_aim = n_aim/total)
+
+prop_aim <- df1 %>% 
+  select(., person, treatment, timepoint, aimn2, prop_aim) %>% 
+  distinct()
+
+plot <- ggplot(filter(prop_aim, aimn2 == "Yes"), 
+               aes(x = timepoint, y = prop_aim, group = person, color = treatment))+
+  geom_point()+
+  geom_line()+
+  labs(y = "Malaria-specific (% of nnCD4)", color = "Treatment")+
+  theme_minimal()+
+  theme(axis.title.x = element_blank())+
+  scale_color_manual(values = c("#5C62D6", "#BF2C34"))
+SaveFigure(plot, "Ag_specific_bulk", type = "pdf", width = 5.5, height = 2, fig_path = cd4_path)
+```
+
+## Figure 7H
+```{r}
+bulk_aim <- rux_comb@meta.data %>% 
+  filter(., AIM == "Bulk") %>% 
+  mutate(aim_clones = case_when(CTaa %in% aim_n2 ~ "AIM clones",
+                                TRUE ~ "Non-AIM clones")) %>% 
+  mutate(cluster.id = factor(cluster.id, levels = c("Th1","Tfh","Tr1","cycling","Tcm",
+                                                    "Tregs","Th2","ISGs", "HSP.stress", "Th17"))) %>% 
+  group_by(person, timepoint, treatment, cluster.id, aim_clones) %>% 
+  summarise(n = n()) %>% 
+  ungroup() %>% 
+  group_by(person, timepoint) %>% 
+  mutate(total = sum(n),
+         prop = n/total*100) %>% 
+  ungroup()
+
+plot <- ggplot(filter(bulk_aim, aim_clones == "AIM clones"), 
+               aes(x = treatment, y = prop, fill = cluster.id))+
+  stat_summary(fun = "mean", geom = "col", position = "stack")+
+  theme_classic()+
+  labs(y = "Malaria-specific cells (% nnCD4)")+
+  theme(axis.title.x = element_blank())+
+  scale_fill_manual(values = cluster_col)+
+  facet_wrap(~timepoint, ncol = 10)
+SaveFigure(plot, "Bulk_aimn2_tp.clust.tx", type = "pdf", width = 12, height = 2.5, fig_path = cd4_path)
+```
+
+## Figure 7I
+AIM
+```{r}
+df <- subset(rux_comb, subset = AIM == "AIM" & CTaa %in% aim_n2 & timepoint %in% c("T+7","rT+3"))
+
+Idents(df) <- "cluster.id"
+
+plot1 <- clonalOverlap(subset(df, subset = timepoint == "T+7"), 
+                      cloneCall = "aa", 
+                      method = "jaccard",
+                      palette = "plasma")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle("AIM (T+7)")
+SaveFigure(plot1, "AIM_overlap.T7", type = "pdf", width = 7, height = 6, fig_path = cd4_path)
+
+plot2 <- clonalOverlap(subset(df, subset = timepoint == "rT+3"), 
+                      cloneCall = "aa", 
+                      method = "jaccard",
+                      palette = "plasma")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle("AIM (rT+3)")
+SaveFigure(plot2, "AIM_overlap.rT3", type = "pdf", width = 7, height = 6, fig_path = cd4_path)
+```
+
+Bulk
+```{r}
+df <- subset(rux_comb, subset = AIM == "Bulk" & CTaa %in% aim_n2 & timepoint %in% c("T+7","rT+3"))
+
+Idents(df) <- "cluster.id"
+
+plot1 <- clonalOverlap(subset(df, subset = timepoint == "T+7"), 
+                      cloneCall = "aa", 
+                      method = "jaccard",
+                      palette = "plasma")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle("Ex-vivo (T+7)")
+SaveFigure(plot1, "Bulk_overlap.T7", type = "pdf", width = 7, height = 6, fig_path = cd4_path)
+
+plot2 <- clonalOverlap(subset(df, subset = timepoint == "rT+3"), 
+                      cloneCall = "aa", 
+                      method = "jaccard",
+                      palette = "plasma")+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5))+
+  ggtitle("Ex-vivo (rT+3)")
+SaveFigure(plot2, "Bulk_overlap.rT3", type = "pdf", width = 7, height = 6, fig_path = cd4_path)
+```
+
+# Supplementary Figure 10
+## SFigure 10D
+```{r}
+bar_aim <- rux_comb@meta.data %>% 
+  filter(., AIM == "AIM") %>%
+  filter(., !person %in% c("D390", "D664")) %>% 
+  select(., c(person, AIM, timepoint, treatment, CTaa, cloneN, cluster.id, treatment)) %>% 
+  remove_rownames() %>% 
+  group_by(person, timepoint, AIM, treatment) %>% 
+  mutate(total_n = n()) %>% 
+  count(cluster.id, total_n, name = "n_per_cat") %>% 
+  mutate(prop = n_per_cat / total_n) %>% 
+  ungroup() %>% 
+  mutate(cluster.id = factor(cluster.id, levels = rev(cluster_orders)))
+
+plot <- ggplot(bar_aim, aes(x = treatment, y = n_per_cat, fill = cluster.id)) +
+  geom_col(position = "fill") +
+  coord_cartesian(ylim = c(0, 1.08), clip = "off") +  # room for labels above bars
+  theme_classic() +
+  scale_fill_manual(values = cluster_col) +
+  labs(y = "Proportion") +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    plot.margin = margin(5.5, 5.5, 20, 5.5) # a bit more bottom margin for rotated labels
+  ) +
+  facet_grid(~ timepoint)
+
+SaveFigure(plot, "barplot.AIM_cluster_tx", type = "pdf", width = 10 , height = 3, fig_path = cd4_path)
+```
+
+
+## SFigure 10E
+```{r}
+bar_cluster <- rux_comb@meta.data %>% 
+  filter(., AIM == "Bulk" & CTaa %in% aim_n2) %>% 
+  filter(., !person %in% c("D390", "D664")) %>% 
+  select(., c(person, AIM, timepoint, treatment, CTaa, cloneN, cluster.id, treatment)) %>% 
+  remove_rownames() %>% 
+  group_by(person, timepoint, AIM, treatment) %>% 
+  mutate(total_n = n()) %>% 
+  count(cluster.id, total_n, name = "n_per_cat") %>% 
+  mutate(prop = n_per_cat / total_n) %>% 
+  ungroup() %>% 
+  mutate(cluster.id = factor(cluster.id, levels = rev(cluster_orders)))
+
+plot <- ggplot(bar_cluster, aes(x = treatment, y = n_per_cat, fill = cluster.id)) +
+  geom_col(position = "fill") +
+  coord_cartesian(ylim = c(0, 1.08), clip = "off") +  # room for labels above bars
+  theme_classic() +
+  scale_fill_manual(values = cluster_col) +
+  labs(y = "Proportion") +
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+    plot.margin = margin(5.5, 5.5, 20, 5.5) # a bit more bottom margin for rotated labels
+  ) +
+  facet_grid(~ timepoint)
+SaveFigure(plot, "barplot_cluster_tx", type = "pdf", width = 10 , height = 3, fig_path = cd4_path)
+```
