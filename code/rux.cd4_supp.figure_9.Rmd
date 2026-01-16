@@ -1,0 +1,348 @@
+---
+title: "rux.cd4_supp_figure 9"
+author: "Jessica Engel"
+date: "2026-01-14"
+output: html_document
+---
+
+## Libraries
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+library(ggpubr)
+library(sctransform)
+library(presto)
+library(dplyr)
+library(RColorBrewer)
+library(glmGamPoi)
+library(devtools)
+library(harmony)
+library(forcats)
+library(viridis)
+library(readr)
+library(UpSetR)
+library(ggpubr)
+library(ggrepel)
+```
+
+## Default cluster colours and orders
+
+```{r }
+bulk.cd4_cluster_cols_v2 <- c(
+  "Th17"           = "#87D7A2",  
+  "Th1"            = "#F1D0C0", 
+  "Tfh"            = "#8CBDE0",  
+  "Tcm"            = "#EAA7C4",  
+  "Tr1"            = "#E58AB1",  
+  "cycling"        = "#F2B996",  
+  "Tregs"          = "#C8E0C4",  
+  "Th2"            = "#F9D37E",  
+  "ISGs"           = "#F4A87F",  
+  "HSP.stress"     = "#D6E29D"   
+)
+
+aim_cd4_cols_v2 <- c(
+  "AIM.Activated.CD4"   = "#f08989",  
+  "AIM.Tfh"             = "#5C8ED9",  
+  "AIM.Th1"             = "#61B86D",  
+  "AIM.Tr1"             = "#EEDD6E",  
+  "AIM.Th17"            = "#E68DB7",  
+  "AIM.ISGs"            = "#63B2AA",  
+  "AIM.Treg"            = "#9AA6D1",  
+  "AIM.Th2"             = "#BFD77B"   
+)
+
+treatment_col <- c("placebo" = "#5c62d6", "rux" = "#bf2c34")
+
+col_assay <- c(
+  "bulk" = "#4281a4", # light periwinkle blue
+  "AIM" = "#FFD6A5"  # soft peach
+)
+
+#factor donor levels:
+donor_levels <- c("D411", "D390", "D591", "D622", "D577", "D664", "D245", "D284")
+rux.cd4.harmony$person <- factor(rux.cd4.harmony$person, levels = donor_levels)
+
+donor_col <- c("D411"="#E76F51", "D390"="#2A9D8F", "D591"="#E9C46A", "D622" = "#264653", 
+               "D577"="#F4A261", "D664"="#8AB17D", "D245"="#577590", "D284" = "#B56576")
+
+```
+
+## Load data
+
+```{r }
+# bulk.cd4 + AIM.cd4 integrated object
+rux.pint <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/3_rux.cd4_rux.aim_merged_SCTbyperson_harmonybyperson_remc10_cluster.id.FINAL.rds")
+
+# bulk.cd4
+rux.cd4.harmony <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/25_rux.cd4_forpublication.rds")
+
+# AIM.cd4
+rux.aim.harmony <- readRDS(file ="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/9_rux.aim_SCTbyperson_cluster.id.aim_v2_forPublication.rds")
+
+```
+
+## Supp Figure 9A, B, C Tr1 subset analysis
+```{r}
+# Load data
+rux.cd4.tr1 <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/data/20_TR1.rds")
+
+# Umap of Tr1 clustering - resolution 0.3 
+cols_subset <- c("#a81592", "#5190d7", "#4bc9f1")
+p <- DimPlot(rux.cd4.tr1, raster=FALSE, label=F, group.by="SCT_snn_res.0.3", cols = cols_subset, pt.size = 1) & 
+  theme(aspect.ratio = 1)
+
+ggsave(plot=p, height=6, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/umap_TR1_res0.3.pdf")
+
+# Feature plots of Tr1 related genes
+to.plot <- c("IL10", "IFNG", "KLRB1", "CXCR5", "CXCR6", "CCR7", 
+             "MKI67", "CCR2", "CCR5", "PDCD1", "CTLA4", "LAG3", "HAVCR2", "TIGIT")
+p <- FeaturePlot(rux.cd4.tr1, features = to.plot, ncol = 7, order = TRUE, pt.size = 1) & theme(aspect.ratio = 1)
+
+ggsave(plot=p, height=20, width=20, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/umap_TR1_CIR.pdf")
+
+# Line graphs showing proportion cells per cluster over time
+meta <- rux.cd4.tr1@meta.data
+meta$cluster <- rux.cd4.tr1$SCT_snn_res.0.3
+table_data_donor <- as.data.frame(table(meta$timepoint, meta$cluster, meta$person))
+colnames(table_data_donor) <- c("timepoint", "cluster", "donor","cell_count")
+table_data_donor <- table_data_donor %>%
+  filter(donor %in% c("D411", "D577", "D390", "D664", "D591", "D245", "D622", "D284"))
+total_cells <- nrow(meta)
+table_data_donor$percent_total <- (table_data_donor$cell_count / total_cells) * 100
+
+
+group_a <- c("D411", "D390", "D591", "D622")
+group_b <- c("D577", "D664", "D245", "D284")
+
+table_data_donor$group <- ifelse(table_data_donor$donor %in% group_a, "placebo",
+                                 ifelse(table_data_donor$donor %in% group_b, "rux", NA))
+
+group_means <- table_data_donor %>%
+  group_by(timepoint, cluster, group) %>%
+  summarise(mean_percent = mean(percent_total), .groups = "drop")
+
+
+p_combined <- ggplot() +
+  # Donor lines
+  geom_line(
+    data = table_data_donor,
+    aes(x = timepoint, y = percent_total, color = donor, group = interaction(cluster, donor)),
+    size = 1,
+    alpha = 0.3
+  ) +
+  # Group average lines
+  geom_line(
+    data = group_means,
+    aes(x = timepoint, y = mean_percent, color = group, group = interaction(cluster, group)),
+    size = 1.5,
+    linetype = "solid"
+  ) +
+  facet_wrap(~cluster, scales = "free_y", strip.position = "top") +
+  scale_color_manual(
+    values = c(
+      "D411" = "#5c62d6", "D390" = "#5c62d6", "D591" = "#5c62d6", "D622" = "#5c62d6",
+      "D577" = "#bf2c34", "D664" = "#bf2c34", "D245" = "#bf2c34", "D284" = "#bf2c34",
+      "placebo" = "#5c62d6", "rux" = "#bf2c34"
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.title = element_blank()
+  ) +
+  labs(
+    x = "Timepoint",
+    y = "% of total Tr1 cells (Cluster 15)"
+  )
+
+p_combined
+
+ggsave(plot=p_combined,height=3,width=12,dpi=300,filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/Tr1_treatment_clusterfreq_AVERAGE_byINDIVIDUAL.pdf")
+```
+
+## Supp figure 9 D, E, F Tfh subset analysis
+
+```{r}
+# Load data
+rux.cd4.tfh <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/data/20_tfh.rds")
+
+# Umap of Tfh clustering - resolution 0.4
+tfh_cols <- c(
+  "#cba3e3",  # dark purple
+  "#3163d8",  # blue
+  "#36bdbc",  # teal
+  "#9b59b6",  # medium purple
+  "#e75480",  # pink
+  "#d291bc"   # light purple/lavender
+)
+
+p <- DimPlot(rux.cd4.tfh, raster=FALSE, label=F, group.by="SCT_snn_res.0.4", cols = tfh_cols, pt.size = 0.5) + theme(aspect.ratio = 1)
+
+ggsave(plot=p, height=6, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/umap_tfh_res0.4_FIG.pdf")
+
+# Feature plots of Tfh-related genes
+to.plot <- c("CXCR5", "PDCD1", "BCL6", "IL21", "PRDM1", "IL10", "ID3",
+             "TOX2", "CD38", "CCR6", "CXCR3", "IFNG", "AREG", "GZMA")
+p <- FeaturePlot(rux.cd4.tfh, features = to.plot, ncol = 7, order = TRUE, pt.size = 0.5, raster = F) & theme(aspect.ratio = 1)
+
+ggsave(plot=p, height=20, width=20, dpi=100, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/umap_TFH_CIR.pdf")
+
+# Line graphs showing proportion cells per cluster over time
+meta <- rux.cd4.tfh@meta.data
+meta$cluster <- rux.cd4.tfh$SCT_snn_res.0.4
+table_data_donor <- as.data.frame(table(meta$timepoint, meta$cluster, meta$person))
+colnames(table_data_donor) <- c("timepoint", "cluster", "donor","cell_count")
+table_data_donor <- table_data_donor %>%
+  filter(donor %in% c("D411", "D577", "D390", "D664", "D591", "D245", "D622", "D284"))
+total_cells <- nrow(meta)
+table_data_donor$percent_total <- (table_data_donor$cell_count / total_cells) * 100
+
+
+group_a <- c("D411", "D390", "D591", "D622")
+group_b <- c("D577", "D664", "D245", "D284")
+
+table_data_donor$group <- ifelse(table_data_donor$donor %in% group_a, "placebo",
+                                 ifelse(table_data_donor$donor %in% group_b, "rux", NA))
+
+group_means <- table_data_donor %>%
+  group_by(timepoint, cluster, group) %>%
+  summarise(mean_percent = mean(percent_total), .groups = "drop")
+
+
+p_combined <- ggplot() +
+  # Donor lines
+  geom_line(
+    data = table_data_donor,
+    aes(x = timepoint, y = percent_total, color = donor, group = interaction(cluster, donor)),
+    size = 1,
+    alpha = 0.3
+  ) +
+  # Group average lines
+  geom_line(
+    data = group_means,
+    aes(x = timepoint, y = mean_percent, color = group, group = interaction(cluster, group)),
+    size = 1.5,
+    linetype = "solid"
+  ) +
+  facet_wrap(~cluster, scales = "free_y", strip.position = "top") +
+  scale_color_manual(
+    values = c(
+      "D411" = "#5c62d6", "D390" = "#5c62d6", "D591" = "#5c62d6", "D622" = "#5c62d6",
+      "D577" = "#bf2c34", "D664" = "#bf2c34", "D245" = "#bf2c34", "D284" = "#bf2c34",
+      "placebo" = "#5c62d6", "rux" = "#bf2c34"
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.title = element_blank()
+  ) +
+  labs(
+    x = "Timepoint",
+    y = "% of total tfh cells (Cluster 15)"
+  )
+
+p_combined
+
+ggsave(plot=p_combined,height=3,width=12,dpi=300,filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tfh_treatment_clusterfreq_AVERAGE_byINDIVIDUAL.png")
+
+ggsave(plot=p_combined,height=6,width=12,dpi=300,filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tfh_treatment_clusterfreq_AVERAGE_byINDIVIDUAL.pdf")
+```
+
+## Supp figure 9 G, H, I Th1 subset analysis
+
+```{r}
+# Load data
+rux.cd4.th1.th17 <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/data/20_th1.th17.cytotoxic.rds")
+
+# Umap of Th1 clustering - resolution 0.3
+Th1.cols <- c("#A6CEE3", "#1F78B4", "#CAB2D6", "#6A3D9A", "#F2B6D0", "#E377C2")
+p <- DimPlot(rux.cd4.th1.th17, raster=FALSE, label=F, group.by="SCT_snn_res.0.3", cols = Th1.cols, pt.size = 0.5) & theme (aspect.ratio =1)
+
+ggsave(plot=p, height=6, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/umap_th1.th17.cytotoxic_res0.3FIG.pdf")
+
+# Plot feature plots for Th1-related genes:
+to.plot <- c("IFNG", "TBX21", "IL10", "CXCR5","CXCR3", "CCR6", "CXCR6", "GNLY", 
+             "GZMB", "NKG7", "CCL4", "IL23-R")
+p <- FeaturePlot(rux.cd4.th1.th17, features = to.plot, ncol = 6, order = TRUE, pt.size = 0.5) & theme(aspect.ratio = 1)
+
+ggsave(plot=p, height=20, width=20, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/umap_th1.th17.cytotoxic_CIR.pdf")
+
+# Line graphs showing cluster proportions over time
+meta <- rux.cd4.th1.th17@meta.data
+meta$cluster <- rux.cd4.th1.th17$SCT_snn_res.0.3
+table_data_donor <- as.data.frame(table(meta$timepoint, meta$cluster, meta$person))
+colnames(table_data_donor) <- c("timepoint", "cluster", "donor","cell_count")
+table_data_donor <- table_data_donor %>%
+  filter(donor %in% c("D411", "D577", "D390", "D664", "D591", "D245", "D622", "D284"))
+total_cells <- nrow(meta)
+table_data_donor$percent_total <- (table_data_donor$cell_count / total_cells) * 100
+
+
+group_a <- c("D411", "D390", "D591", "D622")
+group_b <- c("D577", "D664", "D245", "D284")
+
+table_data_donor$group <- ifelse(table_data_donor$donor %in% group_a, "placebo",
+                                 ifelse(table_data_donor$donor %in% group_b, "rux", NA))
+
+group_means <- table_data_donor %>%
+  group_by(timepoint, cluster, group) %>%
+  summarise(mean_percent = mean(percent_total), .groups = "drop")
+
+
+p_combined <- ggplot() +
+  # Donor lines
+  geom_line(
+    data = table_data_donor,
+    aes(x = timepoint, y = percent_total, color = donor, group = interaction(cluster, donor)),
+    size = 1,
+    alpha = 0.3
+  ) +
+  # Group average lines
+  geom_line(
+    data = group_means,
+    aes(x = timepoint, y = mean_percent, color = group, group = interaction(cluster, group)),
+    size = 1.5,
+    linetype = "solid"
+  ) +
+  facet_wrap(~cluster, scales = "free_y", strip.position = "top") +
+  scale_color_manual(
+    values = c(
+      "D411" = "#5c62d6", "D390" = "#5c62d6", "D591" = "#5c62d6", "D622" = "#5c62d6",
+      "D577" = "#bf2c34", "D664" = "#bf2c34", "D245" = "#bf2c34", "D284" = "#bf2c34",
+      "placebo" = "#5c62d6", "rux" = "#bf2c34"
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.title = element_blank()
+  ) +
+  labs(
+    x = "Timepoint",
+    y = "% of total th1.th17 cells (Cluster 15)"
+  )
+
+p_combined
+
+ggsave(plot=p_combined,height=6,width=12,dpi=300,filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/th1.th17_res0.3_treatment_clusterfreq_byINDIVIDUAL.pdf")
+
+
+```
+

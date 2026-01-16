@@ -1,0 +1,1427 @@
+---
+title: "rux.cd4_Figures_5_6_7"
+author: "Jessica Engel"
+date: "2026-01-14"
+output: html_document
+---
+
+## Libraries
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+library(ggpubr)
+library(sctransform)
+library(presto)
+library(dplyr)
+library(RColorBrewer)
+library(glmGamPoi)
+library(devtools)
+library(harmony)
+library(forcats)
+library(viridis)
+library(readr)
+library(UpSetR)
+library(ggpubr)
+library(ggrepel)
+```
+
+## Default cluster colours and orders
+
+```{r }
+bulk.cd4_cluster_cols_v2 <- c(
+  "Th17"           = "#87D7A2",  
+  "Th1"            = "#F1D0C0", 
+  "Tfh"            = "#8CBDE0",  
+  "Tcm"            = "#EAA7C4",  
+  "Tr1"            = "#E58AB1",  
+  "cycling"        = "#F2B996",  
+  "Tregs"          = "#C8E0C4",  
+  "Th2"            = "#F9D37E",  
+  "ISGs"           = "#F4A87F",  
+  "HSP.stress"     = "#D6E29D"   
+)
+
+aim_cd4_cols_v2 <- c(
+  "AIM.Activated.CD4"   = "#f08989",  
+  "AIM.Tfh"             = "#5C8ED9",  
+  "AIM.Th1"             = "#61B86D",  
+  "AIM.Tr1"             = "#EEDD6E",  
+  "AIM.Th17"            = "#E68DB7",  
+  "AIM.ISGs"            = "#63B2AA",  
+  "AIM.Treg"            = "#9AA6D1",  
+  "AIM.Th2"             = "#BFD77B"   
+)
+
+treatment_col <- c("placebo" = "#5c62d6", "rux" = "#bf2c34")
+
+col_assay <- c(
+  "bulk" = "#4281a4", # light periwinkle blue
+  "AIM" = "#FFD6A5"  # soft peach
+)
+
+#factor donor levels:
+donor_levels <- c("D411", "D390", "D591", "D622", "D577", "D664", "D245", "D284")
+rux.cd4.harmony$person <- factor(rux.cd4.harmony$person, levels = donor_levels)
+
+donor_col <- c("D411"="#E76F51", "D390"="#2A9D8F", "D591"="#E9C46A", "D622" = "#264653", 
+               "D577"="#F4A261", "D664"="#8AB17D", "D245"="#577590", "D284" = "#B56576")
+
+```
+
+## Load data
+
+```{r }
+# bulk.cd4 + AIM.cd4 integrated object
+rux.pint <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/3_rux.cd4_rux.aim_merged_SCTbyperson_harmonybyperson_remc10_cluster.id.FINAL.rds")
+
+# bulk.cd4
+rux.cd4.harmony <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/25_rux.cd4_forpublication.rds")
+
+# AIM.cd4
+rux.aim.harmony <- readRDS(file ="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/9_rux.aim_SCTbyperson_cluster.id.aim_v2_forPublication.rds")
+
+```
+
+## Figure 5B UMAP Integrated by stim.assay
+
+```{r}
+p <- DimPlot(rux.pint, raster=FALSE, label=F, group.by="stim.assay", cols = col_assay, pt.size = 0.1) 
+
+ggsave(plot=p, height=6, width=8, dpi=300, 
+       filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/umap_rux.pint.ASSAY.pdf")
+
+```
+
+## Figure 5C UMAP bulk.cd4 by cluster.id
+
+```{r}
+p <- DimPlot(rux.cd4.harmony, raster=FALSE, label=F, group.by="cluster.id.merge.v2", cols = bulk.cd4_cluster_cols_v2, pt.size = 0.1)
+
+ggsave(plot=p, height=6, width=8, dpi=300, 
+       filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/umap_res1.merge_cluster.id.merge.v2.pdf")
+```
+
+## Figure 5D Dotplot bulk.cd4 curated cluster marker genes with cell cycle scores
+
+```{r}
+## Import curated cluster marker gene list:
+Idents(rux.cd4.harmony) <- rux.cd4.harmony$cluster.id.merge.v2
+gene.list <- read.csv("L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/curated.cluster.marker.genes.v2.csv")
+gene.list <- gene.list[,1]
+
+# find the position where you want to insert the cell cycle scores
+pos <- which(gene.list == "RRM2")
+
+## Add cell cycling scores: 
+# Load the built-in cell cycle gene lists
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+
+#Assign cell cycle scores:
+rux.cd4.harmony <- CellCycleScoring(rux.cd4.harmony, 
+                                    s.features = s.genes, g2m.features = g2m.genes, 
+                                    set.ident = TRUE)
+#Warning: The following features are not present in the object: MLF1IP, not searching for symbol synonyms
+#Warning: The following features are not present in the object: FAM64A, HN1, not searching for symbol synonyms
+
+# create a new vector with the gene inserted
+gene.list <- c(
+  gene.list[1:pos],   # genes up to the insertion point
+  c("G2M.Score", "S.Score"),              # new gene
+  gene.list[(pos+1):length(gene.list)]  # remaining genes
+)
+#remove 2 other cell cycle genes from curated list
+gene.list <- setdiff(gene.list, c("UBE2C", "RRM2"))
+
+
+p <- DotPlot(rux.cd4.harmony, features = as.character(gene.list), group.by = "cluster.id.merge.v2") + 
+  ylab("Cluster.ID") + 
+  scale_size_continuous(range = c(1, 8)) +  # min/max circle size
+  scale_colour_viridis(option = "viridis", direction = -1) +  # reversed viridis
+  scale_y_discrete(limits = rev(levels(Idents(rux.cd4.harmony)))) +  # reversed cluster order
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(face="italic", size = 10, angle = 55, hjust=0.85, vjust=0.8),
+    text = element_text(size=20)
+  )
+
+ggsave(plot=p, height=4, width=20, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/dotplot_bulk.CD4_cluster.marker.curated_viridis_v2_wG2M_S.pdf")
+
+
+```
+
+## Figure 5E Upset plot bulk.cd4 cluster marker gene sharing between subsets
+```{r}
+folder <- "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/cluster.markers_cluster.id.merge.v2//"
+
+file_list <- list.files(path = folder, pattern = "\\.csv$", full.names = TRUE)
+
+gene_lists <- list()
+
+for (f in file_list) {
+  # Extract clean cluster name
+  cluster_name <- gsub("cluster\\.marker\\.genes_cluster\\.id\\.merge\\.v2_|\\.filtered\\.csv$", "", basename(f))
+  
+  # Read CSV
+  df <- read_csv(f, col_names = FALSE)
+  colnames(df)[1:6] <- c("gene", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj")
+  
+  # Keep only positive logFC genes
+  genes <- df %>%
+    filter(avg_log2FC > 0) %>%
+    pull(gene)
+  
+  # Remove any NA values
+  genes <- genes[!is.na(genes)]
+  
+  gene_lists[[cluster_name]] <- genes
+}
+
+# Check simplified list
+str(gene_lists, max.level = 1)
+
+# Plot UpSet plot for all clusters
+pdf("L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/UpsetPlot_cluster.marker.genes_cluster.id.merge.v2_positiveOnly_for plot.pdf",
+    height = 10, width = 12)
+
+upset(
+  fromList(gene_lists),
+  order.by = "freq", 
+  mainbar.y.label = "Shared positive cluster marker genes",
+  sets.x.label = "No.DEGs (avg_log2FC > 0)",
+  nsets = length(gene_lists)
+)
+
+dev.off()
+```
+## Figure F5 Barcharts of cluster proportions per treatment and donor
+
+```{r}
+## Stacked barchart by TREATMENT
+
+# Create count table including timepoint
+cluster_counts <- as.data.frame(table(rux.cd4.harmony$treatment, 
+                                      rux.cd4.harmony$cluster.id.merge.v2,
+                                      rux.cd4.harmony$timepoint))
+
+colnames(cluster_counts) <- c("Treatment", "Cluster", "Timepoint", "Cell_Count")
+
+# Calculate proportions per cluster and timepoint
+cluster_counts <- cluster_counts %>%
+  group_by(Cluster, Timepoint) %>%
+  mutate(Proportion = Cell_Count / sum(Cell_Count))
+
+# Optional: specify order of timepoints if not already a factor
+time_levels <- c("I", "T", "T+3", "T+7", "T+20", "rI", "rT", "rT+3", "rT+7", "rT+20")
+cluster_counts$Timepoint <- factor(cluster_counts$Timepoint, levels = time_levels)
+
+# Plot
+p <- ggplot(cluster_counts, aes(x = Treatment, y = Proportion, fill = Cluster)) +
+  geom_bar(stat = "identity", position = "fill") +
+  theme_minimal() +
+  xlab("Cluster") +
+  ylab("Proportion of Cells") +
+  ggtitle("Proportion of Cells per Cluster by Treatment") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = bulk.cd4_cluster_cols_v2) 
+p
+
+# Save plot
+ggsave(
+  plot = p,
+  filename = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/barchart_cluster.id.merge.v2_Treatment_byCLUSTER.pdf",
+  height = 6, width = 2, dpi = 300
+)
+
+## Stacked barchart by PERSON
+# Create count table including timepoint
+cluster_counts <- as.data.frame(table(rux.cd4.harmony$person, 
+                                      rux.cd4.harmony$cluster.id.merge.v2,
+                                      rux.cd4.harmony$timepoint))
+
+colnames(cluster_counts) <- c("Person", "Cluster", "Timepoint", "Cell_Count")
+
+# Calculate proportions per cluster and timepoint
+cluster_counts <- cluster_counts %>%
+  group_by(Cluster, Timepoint) %>%
+  mutate(Proportion = Cell_Count / sum(Cell_Count))
+
+# Optional: specify order of timepoints if not already a factor
+time_levels <- c("I", "T", "T+3", "T+7", "T+20", "rI", "rT", "rT+3", "rT+7", "rT+20")
+cluster_counts$Timepoint <- factor(cluster_counts$Timepoint, levels = time_levels)
+
+# Plot
+p <- ggplot(cluster_counts, aes(x = Person, y = Proportion, fill = Cluster)) +
+  geom_bar(stat = "identity", position = "fill") +
+  theme_minimal() +
+  xlab("Cluster") +
+  ylab("Proportion of Cells") +
+  ggtitle("Proportion of Cells per Cluster by Person") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  scale_y_continuous(labels = scales::percent) +
+  scale_fill_manual(values = bulk.cd4_cluster_cols_v2) 
+p
+
+# Save plot
+ggsave(
+  plot = p,
+  filename = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/barchart_cluster.id.merge.v2_Person_byCLUSTER.pdf",
+  height = 6, width = 2, dpi = 300
+)
+
+```
+
+## Figure 5G and 5H Line graphs of cell frequency per cluster across time
+
+```{r}
+## Split graphs by primary and secondary infection:
+meta <- rux.cd4.harmony@meta.data
+meta$cluster <- rux.cd4.harmony$cluster.id.merge.v2
+table_data_donor <- as.data.frame(table(meta$timepoint, meta$cluster, meta$person))
+colnames(table_data_donor) <- c("timepoint", "cluster", "donor","cell_count")
+table_data_donor <- table_data_donor %>%
+  filter(donor %in% c("D411", "D577", "D390", "D664", "D591", "D245", "D622", "D284"))
+total_cells <- nrow(meta)
+table_data_donor$percent_total <- (table_data_donor$cell_count / total_cells) * 100
+
+group_a <- c("D411", "D390", "D591", "D622")
+group_b <- c("D577", "D664", "D245", "D284")
+
+table_data_donor$group <- ifelse(table_data_donor$donor %in% group_a, "placebo",
+                                 ifelse(table_data_donor$donor %in% group_b, "rux", NA))
+
+group_means <- table_data_donor %>%
+  group_by(timepoint, cluster, group) %>%
+  summarise(mean_percent = mean(percent_total), .groups = "drop")
+
+#plot primary first
+table_data_donor_primary <- table_data_donor %>%
+  filter(timepoint %in% c("I", "T", "T+3", "T+7", "T+20"))
+
+group_means_primary <- group_means %>%
+  filter(timepoint %in% c("I", "T", "T+3", "T+7", "T+20"))
+
+
+p_combined <- ggplot() +
+  # Donor lines
+  geom_line(
+    data = table_data_donor_primary,
+    aes(x = timepoint, y = percent_total, color = donor, group = interaction(cluster, donor)),
+    size = 1,
+    alpha = 0.3
+  ) +
+  # Group average lines
+  geom_line(
+    data = group_means_primary,
+    aes(x = timepoint, y = mean_percent, color = group, group = interaction(cluster, group)),
+    size = 1.5,
+    linetype = "solid"
+  ) +
+  facet_wrap(~cluster, scales = "free_y", strip.position = "top", ncol = 5) +
+  scale_color_manual(
+    values = c(
+      "D411" = "#5c62d6", "D390" = "#5c62d6", "D591" = "#5c62d6", "D622" = "#5c62d6",
+      "D577" = "#bf2c34", "D664" = "#bf2c34", "D245" = "#bf2c34", "D284" = "#bf2c34",
+      "placebo" = "#5c62d6", "rux" = "#bf2c34"
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.title = element_blank()
+  ) +
+  labs(
+    x = "Timepoint",
+    y = "% of total CD45RA- CD4+ T cells"
+  )
+
+p_combined
+
+ggsave(plot=p_combined,height=7,width=20,dpi=300,filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/cluster.freq.graphs_cluster.id.merge.v2_average_PRIMARY.pdf")
+
+#plot secondary
+table_data_donor_primary <- table_data_donor %>%
+  filter(timepoint %in% c("rI", "rT", "rT+3", "rT+7", "rT+20"))
+
+group_means_primary <- group_means %>%
+  filter(timepoint %in% c("rI", "rT", "rT+3", "rT+7", "rT+20"))
+
+
+p_combined <- ggplot() +
+  # Donor lines
+  geom_line(
+    data = table_data_donor_primary,
+    aes(x = timepoint, y = percent_total, color = donor, group = interaction(cluster, donor)),
+    size = 1,
+    alpha = 0.3
+  ) +
+  # Group average lines
+  geom_line(
+    data = group_means_primary,
+    aes(x = timepoint, y = mean_percent, color = group, group = interaction(cluster, group)),
+    size = 1.5,
+    linetype = "solid"
+  ) +
+  facet_wrap(~cluster, scales = "free_y", strip.position = "top", ncol = 5) +
+  scale_color_manual(
+    values = c(
+      "D411" = "#5c62d6", "D390" = "#5c62d6", "D591" = "#5c62d6", "D622" = "#5c62d6",
+      "D577" = "#bf2c34", "D664" = "#bf2c34", "D245" = "#bf2c34", "D284" = "#bf2c34",
+      "placebo" = "#5c62d6", "rux" = "#bf2c34"
+    )
+  ) +
+  theme_minimal() +
+  theme(
+    panel.grid = element_blank(),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black"),
+    legend.title = element_blank()
+  ) +
+  labs(
+    x = "Timepoint",
+    y = "% of total CD45RA- CD4+ T cells"
+  )
+
+p_combined
+
+ggsave(plot=p_combined,height=7,width=20,dpi=300,filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/cluster.freq.graphs_cluster.id.merge.v2_average_SECONDARY.pdf")
+
+
+```
+
+## Figure 6A Hallmark IFN alpha response
+
+```{r}
+## HALLMARK IFN ALPHA RESPONSE
+gene_set <- read.csv("L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/hallmark_ifnalpha.response_geneset.csv")
+gene_set <- gene_set[,1]
+
+# Add module score
+rux.cd4.harmony <- AddModuleScore(
+  object = rux.cd4.harmony,
+  features = list(gene_set),
+  name = "IFN_alpha_score"
+) #The following features are not present in the object: BATF2, CXCL11, FAM125A, FAM46A, FTSJD2, PRIC285, not searching for symbol synonyms
+
+# Extract metadata
+meta <- rux.cd4.harmony@meta.data
+
+# Keep only T+3
+meta <- meta %>% filter(timepoint == "T+3")
+
+# Plot violin: clusters on x, IFN score on y
+p <-ggplot(meta, aes(x = treatment, y = IFN_alpha_score1, fill = treatment)) +
+  geom_violin(alpha = 0.7, trim = FALSE) +
+  geom_boxplot(width = 0.15, outlier.shape = NA, alpha = 0.8) +
+  scale_fill_manual(values = c("placebo" = "#5c62d6", "rux" = "#bf2c34")) +
+  labs(x = "Treatment", y = "IFN-alpha Module Score") +
+  theme_classic() +
+  theme(
+    legend.position = "none",  # remove legend since fill = treatment
+    strip.text = element_text(size = 12)
+  ) +
+  facet_wrap(~ cluster.id.merge.v2, scales = "free_y", ncol = 5) +  # facet by cluster
+  stat_compare_means(
+    aes(group = treatment),
+    method = "wilcox.test",
+    label = "p.format",
+    label.y = max(meta$IFN_alpha_score1, na.rm = TRUE) * 1.05
+  )
+
+p
+ggsave(plot = p,height = 4,width = 12,dpi = 300,
+  filename = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/hallmark_IFNa_response_score_bulk.cd4_T3_pvalue_cluster.id.merge.v2.pdf")
+```
+
+## Figure 6B volcano plots for EdgeR DEG analysis placebo vs Rux for bulk.cd4 Tr1, Tfh, Th1
+```{r}
+# Load EdgeR DEG lists:
+
+# TR1 cluster
+tr1.t7 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tr1_T7_EdgeR_ruxvsPlacebo_allgenes.csv")
+tr1.rt3 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tr1_rT3_EdgeR_ruxvsPlacebo_allgenes.csv")
+
+#T7
+# Add a column for significance labeling
+tr1.t7$significant <- with(tr1.t7, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+
+# Volcano plot
+sig_genes <- tr1.t7[tr1.t7$p_val < 0.05 & abs(tr1.t7$logFC) > 1, ] # genes to label
+
+#colour up and down regulated
+tr1.t7$direction <- with(tr1.t7, ifelse(p_val < 0.05 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+
+p <- ggplot(tr1.t7, aes(x = logFC, y = -log10(p_val))) +
+  geom_point(aes(color = direction), alpha = 0.6) +
+  scale_color_manual(values = c("RUX" = "red", "Placebo" = "blue", "NS" = "grey")) +
+  
+  # Labels with lines for all genes
+  ggrepel::geom_text_repel(
+    data = sig_genes,
+    aes(label = gene),
+    size = 3,
+    max.overlaps = Inf,          # allow all labels
+    min.segment.length = 0,      # draw even very short segments
+    box.padding = 0.5,
+    point.padding = 0.2,
+    segment.color = "black",
+    segment.size = 0.3,
+    nudge_x = 0.05,              # small nudge to force line
+    nudge_y = 0.05,
+    force = 1.5                  # stronger repulsion
+  ) +
+  
+  # Fold-change and significance threshold lines
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  
+  labs(
+    title = "T+7 TR1 Rux vs Placebo EdgeR",
+    x = "Log2 Fold Change",
+    y = "-Log10 p-value",
+    color = "Signif"
+  ) +
+  
+  # Theme with full border lines
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6),
+    axis.line = element_line(color = "black", linewidth = 0.4),
+    axis.ticks = element_line(color = "black")
+  )
+
+p
+
+ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tr1_T7_EdgeR_VolcanoPlot.pdf")
+
+#rT3
+# Add a column for significance labeling
+tr1.rt3$significant <- with(tr1.rt3, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+
+# Volcano plot
+sig_genes <- tr1.rt3[tr1.rt3$p_val < 0.05 & abs(tr1.rt3$logFC) >1, ] # genes to label
+
+#colour up and down regulated
+tr1.rt3$direction <- with(tr1.rt3, ifelse(p_val < 0.05 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+
+library(ggplot2)
+library(ggrepel)
+
+p <- ggplot(tr1.rt3, aes(x = logFC, y = -log10(p_val))) +
+  geom_point(aes(color = direction), alpha = 0.6) +
+  scale_color_manual(values = c("RUX" = "red", "Placebo" = "blue", "NS" = "grey")) +
+  
+  # Labels with lines for all genes
+  geom_text_repel(
+    data = sig_genes,
+    aes(label = gene),
+    size = 3,
+    max.overlaps = Inf,          # allow all labels to appear
+    min.segment.length = 0,      # ensures all lines are drawn
+    box.padding = 0.5,
+    point.padding = 0.2,
+    segment.color = "black",
+    segment.size = 0.2,
+    nudge_x = 0.05,              # small nudge to ensure segment is visible
+    nudge_y = 0.05,
+    force = 1.5                  # slightly stronger repulsion
+  ) +
+  
+  # Fold-change and significance threshold lines
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  
+  # Labels and title
+  labs(
+    title = "rT+3 TR1 Rux vs Placebo EdgeR",
+    x = "Log2 Fold Change",
+    y = "-Log10 p-value",
+    color = "Signif"
+  ) +
+  
+  # Theme with full border lines
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6),
+    axis.line = element_line(color = "black", linewidth = 0.4),
+    axis.ticks = element_line(color = "black")
+  )
+
+p
+
+ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tr1_rT3_EdgeR_VolcanoPlot.pdf")
+
+# TFH cluster
+tfh.t7 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/Tfh.TfhID3.Th17Tfh_T7_EdgeR_ruxvsPlacebo_allgenes.csv")
+tfh.rt3 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/Tfh.TfhID3.Th17Tfh_rT3_EdgeR_ruxvsPlacebo_allgenes.csv")
+
+#T7
+# Add a column for significance labeling
+tfh.t7$significant <- with(tfh.t7, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+
+# Volcano plot
+sig_genes <- tfh.t7[tfh.t7$p_val < 0.05 & abs(tfh.t7$logFC) > 1, ] # genes to label
+
+#colour up and down regulated
+tfh.t7$direction <- with(tfh.t7, ifelse(p_val < 0.05 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+
+p <- ggplot(tfh.t7, aes(x = logFC, y = -log10(p_val))) +
+  geom_point(aes(color = direction), alpha = 0.6) +
+  scale_color_manual(values = c("RUX" = "red", "Placebo" = "blue", "NS" = "grey")) +
+  
+  # Labels with lines for all genes
+  ggrepel::geom_text_repel(
+    data = sig_genes,
+    aes(label = gene),
+    size = 3,
+    max.overlaps = Inf,          # allow all labels
+    min.segment.length = 0,      # draw even very short segments
+    box.padding = 0.5,
+    point.padding = 0.2,
+    segment.color = "black",
+    segment.size = 0.3,
+    nudge_x = 0.05,              # small nudge to force line
+    nudge_y = 0.05,
+    force = 1.5                  # stronger repulsion
+  ) +
+  
+  # Fold-change and significance threshold lines
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  
+  labs(
+    title = "T+7 Tfh.TfhID3.Th17Tfh Rux vs Placebo EdgeR",
+    x = "Log2 Fold Change",
+    y = "-Log10 p-value",
+    color = "Signif"
+  ) +
+  
+  # Theme with full border lines
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6),
+    axis.line = element_line(color = "black", linewidth = 0.4),
+    axis.ticks = element_line(color = "black")
+  )
+
+p
+
+ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/Tfh.TfhID3.Th17Tfh_T7_EdgeR_VolcanoPlot.pdf")
+
+# rT3
+# Add a column for significance labeling
+tfh.rt3$significant <- with(tfh.rt3, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+
+# Volcano plot
+sig_genes <- tfh.rt3[tfh.rt3$p_val < 0.05 & abs(tfh.rt3$logFC) > 1, ] # genes to label
+
+#colour up and down regulated
+tfh.rt3$direction <- with(tfh.rt3, ifelse(p_val < 0.05 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+
+p <- ggplot(tfh.rt3, aes(x = logFC, y = -log10(p_val))) +
+  geom_point(aes(color = direction), alpha = 0.6) +
+  scale_color_manual(values = c("RUX" = "red", "Placebo" = "blue", "NS" = "grey")) +
+  
+  # Labels with lines for all genes
+  ggrepel::geom_text_repel(
+    data = sig_genes,
+    aes(label = gene),
+    size = 3,
+    max.overlaps = Inf,          # allow all labels
+    min.segment.length = 0,      # draw even very short segments
+    box.padding = 0.5,
+    point.padding = 0.2,
+    segment.color = "black",
+    segment.size = 0.3,
+    nudge_x = 0.05,              # small nudge to force line
+    nudge_y = 0.05,
+    force = 1.5                  # stronger repulsion
+  ) +
+  
+  # Fold-change and significance threshold lines
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  
+  labs(
+    title = "rT+3 Tfh.TfhID3.Th17Tfh Rux vs Placebo EdgeR",
+    x = "Log2 Fold Change",
+    y = "-Log10 p-value",
+    color = "Signif"
+  ) +
+  
+  # Theme with full border lines
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6),
+    axis.line = element_line(color = "black", linewidth = 0.4),
+    axis.ticks = element_line(color = "black")
+  )
+
+p
+
+ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/Tfh.TfhID3.Th17Tfh_rT3_EdgeR_VolcanoPlot.pdf")
+
+# Th1 Cluster
+th1.t7 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/th1.cytotoxic.th1th17_T7_EdgeR_ruxvsPlacebo_allgenes.csv")
+th1.rt3 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/th1.cytotoxic.th1th17_rT3_EdgeR_ruxvsPlacebo_allgenes.csv")
+
+#T7
+# Add a column for significance labeling
+th1.t7$significant <- with(th1.t7, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+
+# Volcano plot
+sig_genes <- th1.t7[th1.t7$p_val < 0.05 & abs(th1.t7$logFC) > 1, ] # genes to label
+
+#colour up and down regulated
+th1.t7$direction <- with(th1.t7, ifelse(p_val < 0.05 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+
+p <- ggplot(th1.t7, aes(x = logFC, y = -log10(p_val))) +
+  geom_point(aes(color = direction), alpha = 0.6) +
+  scale_color_manual(values = c("RUX" = "red", "Placebo" = "blue", "NS" = "grey")) +
+  
+  # Labels with lines for all genes
+  ggrepel::geom_text_repel(
+    data = sig_genes,
+    aes(label = gene),
+    size = 3,
+    max.overlaps = Inf,          # allow all labels
+    min.segment.length = 0,      # draw even very short segments
+    box.padding = 0.5,
+    point.padding = 0.2,
+    segment.color = "black",
+    segment.size = 0.3,
+    nudge_x = 0.05,              # small nudge to force line
+    nudge_y = 0.05,
+    force = 1.5                  # stronger repulsion
+  ) +
+  
+  # Fold-change and significance threshold lines
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  
+  labs(
+    title = "T+7 th1.cytotoxic.th1th17 Rux vs Placebo EdgeR",
+    x = "Log2 Fold Change",
+    y = "-Log10 p-value",
+    color = "Signif"
+  ) +
+  
+  # Theme with full border lines
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6),
+    axis.line = element_line(color = "black", linewidth = 0.4),
+    axis.ticks = element_line(color = "black")
+  )
+
+p
+
+ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/th1.cytotoxic.th1th17_T7_EdgeR_VolcanoPlot.pdf")
+
+#rT3
+# Add a column for significance labeling
+th1.rt3$significant <- with(th1.rt3, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+
+# Volcano plot
+sig_genes <- th1.rt3[th1.rt3$p_val < 0.05 & abs(th1.rt3$logFC) >1, ] # genes to label
+
+#colour up and down regulated
+th1.rt3$direction <- with(th1.rt3, ifelse(p_val < 0.05 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+
+p <- ggplot(th1.rt3, aes(x = logFC, y = -log10(p_val))) +
+  geom_point(aes(color = direction), alpha = 0.6) +
+  scale_color_manual(values = c("RUX" = "red", "Placebo" = "blue", "NS" = "grey")) +
+  
+  # Labels with lines for all genes
+  geom_text_repel(
+    data = sig_genes,
+    aes(label = gene),
+    size = 3,
+    max.overlaps = Inf,          # allow all labels to appear
+    min.segment.length = 0,      # ensures all lines are drawn
+    box.padding = 0.5,
+    point.padding = 0.2,
+    segment.color = "black",
+    segment.size = 0.2,
+    nudge_x = 0.05,              # small nudge to ensure segment is visible
+    nudge_y = 0.05,
+    force = 1.5                  # slightly stronger repulsion
+  ) +
+  
+  # Fold-change and significance threshold lines
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  
+  # Labels and title
+  labs(
+    title = "rT+3 th1.cytotoxic.th1th17 Rux vs Placebo EdgeR",
+    x = "Log2 Fold Change",
+    y = "-Log10 p-value",
+    color = "Signif"
+  ) +
+  
+  # Theme with full border lines
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6),
+    axis.line = element_line(color = "black", linewidth = 0.4),
+    axis.ticks = element_line(color = "black")
+  )
+
+p
+
+ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/th1.cytotoxic.th1th17_rT3_EdgeR_VolcanoPlot.pdf")
+
+```
+
+## Figure 6C SCPA and waterfall plots for rux vs placebo for bulk.cd4 Tr1, Tfh, and Th1
+
+```{r}
+# Load extra packages
+library(SCPA)
+library(msigdbr)
+library(Matrix)
+
+
+# Prepare pathways:
+# Download MSigDB pathways from: https://www.gsea-msigdb.org/gsea/msigdb/human/collections.jsp#H
+
+# Single GMT file
+gmt_files <- "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/h.all.v2025.1.Hs.symbols.gmt"
+
+############################################################################
+### TR1 subset analysis:
+#subset Tr1 cluster
+table(rux.cd4.harmony$cluster.id.merge)
+Idents(rux.cd4.harmony) <- rux.cd4.harmony$cluster.id.merge.v2
+rux.cd4.tr1 <- subset(rux.cd4.harmony, idents = c("Tr1"), invert=FALSE)
+
+# rerun noormalisation on tr1 subsetting:
+Layers(rux.cd4.tr1[["RNA"]]) # check how layers are split
+
+rux.cd4.tr1[["RNA"]] <- split(rux.cd4.tr1[["RNA"]], f = rux.cd4.tr1$person) #split layers by person
+Layers(rux.cd4.tr1[["RNA"]]) #layers are split by person as wanted
+ncol(rux.cd4.tr1) #2239 cells
+
+rux.cd4.tr1 <- SCTransform(rux.cd4.tr1, vars.to.regress = "percent.mt", verbose = TRUE) 
+rux.cd4.tr1 <- RunPCA(rux.cd4.tr1, verbose = TRUE)
+rux.cd4.tr1 <- RunUMAP(rux.cd4.tr1, dims=1:30, verbose = TRUE)
+rux.cd4.tr1 <- FindNeighbors(rux.cd4.tr1, dims=1:30, verbose=TRUE)
+rux.cd4.tr1 <- FindClusters(rux.cd4.tr1, verbose=TRUE, resolution = c(0.2, 0.3, 0.4, 0.5, 0.8, 1))
+
+DefaultAssay(rux.cd4.tr1) <-  "RNA"
+rux.cd4.tr1 <- JoinLayers(rux.cd4.tr1)
+DefaultAssay(rux.cd4.tr1) <-  "SCT"
+
+saveRDS(rux.cd4.tr1, file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/data/20_TR1.rds")
+rux.cd4.tr1 <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/data/20_TR1.rds")
+
+# log-normalize the RNA assay
+rux.cd4.tr1 <- NormalizeData(
+  rux.cd4.tr1,
+  assay = "RNA",
+  normalization.method = "LogNormalize",
+  scale.factor = 10000
+)
+
+#replace + in timepoint
+levels(rux.cd4.tr1$timepoint) <- gsub("\\+", "", levels(rux.cd4.tr1$timepoint))
+levels(rux.cd4.tr1$timepoint)
+
+Idents(rux.cd4.tr1) <- "timepoint"
+table(rux.cd4.tr1$timepoint)
+
+#Subset T7 and rT3 timepoints
+rux.cd4.tr1.T7 <- subset(rux.cd4.tr1, idents = c("T7"), invert=FALSE)
+rux.cd4.tr1.rT3 <- subset(rux.cd4.tr1, idents = c("rT3"), invert=FALSE)
+
+##########################
+# T7
+##########################
+# Split Seurat object by treatment
+rux_obj <- subset(rux.cd4.tr1.T7, subset = treatment == "rux")
+plac_obj <- subset(rux.cd4.tr1.T7, subset = treatment == "placebo")
+
+# Create the "samples" list for SCPA
+samples <- list(
+  Rux = as.matrix(GetAssayData(rux_obj, slot = "data")),
+  Placebo = as.matrix(GetAssayData(plac_obj, slot = "data"))
+)
+
+# Run SCPA using compare_pathways()
+scpa_out <- compare_pathways(
+  samples = samples,
+  pathways = gmt_files,  # optional:  downsample = 500, equalize number of cells
+  min_genes = 15,
+  max_genes = 500
+)
+
+#### View results:
+head(scpa_out)
+
+write.csv(scpa_out, 
+          file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_Tr1_T7_Hallmark_treatment.csv")
+
+# Waterfall plot Tr1 T7 scpa
+df <- as.data.frame(scpa_out, stringsAsFactors = FALSE)
+
+# Flatten numeric columns
+df$qval <- as.numeric(unlist(df$qval))
+df$Pathway <- as.character(df$Pathway)
+df$adjPval <- as.numeric(unlist(df$adjPval))  # ensure adjusted p-values are numeric
+
+# Define significance
+sig_thresh <- 0.05
+df$significant <- ifelse(df$adjPval < sig_thresh, "Padj < 0.05", "NS")
+
+# Sort pathways by descending qval and set factor levels for waterfall
+df_sorted <- df %>%
+  arrange(desc(qval)) %>%
+  mutate(Pathway = factor(Pathway, levels = rev(Pathway)))  # highest qval on top
+
+# Waterfall plot with color by significance
+p <- ggplot(df_sorted, aes(x = Pathway, y = qval, fill = significant)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Padj < 0.05" = "black", "NS" = "grey")) +
+  xlab("") +
+  ylab("Qval") +
+  ggtitle("Rux vs Placebo_Tr1_T7_Hallmark") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 0.5),  # full black box
+    axis.line = element_blank()  # remove default axis lines
+  )
+
+ggsave(plot=p, height=8, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_Tr1_T7_treatment_Hallmark_waterfall.pdf")
+
+##########################
+# rT3
+##########################
+# Split Seurat object by treatment
+rux_obj <- subset(rux.cd4.tr1.rT3, subset = treatment == "rux")
+plac_obj <- subset(rux.cd4.tr1.rT3, subset = treatment == "placebo")
+
+# Create the "samples" list for SCPA
+samples <- list(
+  Rux = as.matrix(GetAssayData(rux_obj, slot = "data")),
+  Placebo = as.matrix(GetAssayData(plac_obj, slot = "data"))
+)
+
+# Run SCPA using compare_pathways()
+scpa_out <- compare_pathways(
+  samples = samples,
+  pathways = gmt_files,
+  min_genes = 15,
+  max_genes = 500
+)
+
+#### View results:
+head(scpa_out)
+
+write.csv(scpa_out, 
+          file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_Tr1_rT3_Hallmark_treatment.csv")
+
+# Plot rank plot pathways
+plot_rank(scpa_out, pathway = "interferon", population_name = "qval")
+
+# Plot heatmap pathways
+plot_heatmap(scpa_out, 
+             column_names = "Rux vs Placebo",
+             show_row_names = T)
+
+# Waterfall plot Tr1 T7 scpa
+df <- as.data.frame(scpa_out, stringsAsFactors = FALSE)
+
+# Flatten numeric columns
+df$qval <- as.numeric(unlist(df$qval))
+df$Pathway <- as.character(df$Pathway)
+df$adjPval <- as.numeric(unlist(df$adjPval))  # ensure adjusted p-values are numeric
+
+# Define significance
+sig_thresh <- 0.05
+df$significant <- ifelse(df$adjPval < sig_thresh, "Padj < 0.05", "NS")
+
+# Sort pathways by descending qval and set factor levels for waterfall
+df_sorted <- df %>%
+  arrange(desc(qval)) %>%
+  mutate(Pathway = factor(Pathway, levels = rev(Pathway)))  # highest qval on top
+
+# Waterfall plot with color by significance
+p <- ggplot(df_sorted, aes(x = Pathway, y = qval, fill = significant)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Padj < 0.05" = "black", "NS" = "grey")) +
+  xlab("") +
+  ylab("Qval") +
+  ggtitle("Rux vs Placebo_Tr1_T7_Hallmark") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 0.5),  # full black box
+    axis.line = element_blank()  # remove default axis lines
+  )
+
+ggsave(plot=p, height=8, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_Tr1_rT3_treatment_Hallmark_waterfall.pdf")
+
+############################################################################
+### TFH subset analysis:
+#subset tfh cluster
+table(rux.cd4.harmony$cluster.id.merge)
+Idents(rux.cd4.harmony) <- rux.cd4.harmony$cluster.id.merge.v2
+rux.cd4.tfh <- subset(rux.cd4.harmony, idents = c("Tfh"), invert=FALSE)
+
+
+# rerun noormalisation on tfh subsetting:
+Layers(rux.cd4.tfh[["RNA"]]) # check how layers are split
+
+rux.cd4.tfh[["RNA"]] <- split(rux.cd4.tfh[["RNA"]], f = rux.cd4.tfh$person) #split layers by person
+Layers(rux.cd4.tfh[["RNA"]]) #layers are split by person as wanted
+ncol(rux.cd4.tfh) #2239 cells
+
+rux.cd4.tfh <- SCTransform(rux.cd4.tfh, vars.to.regress = "percent.mt", verbose = TRUE) 
+
+rux.cd4.tfh <- RunPCA(rux.cd4.tfh, verbose = TRUE)
+rux.cd4.tfh <- RunUMAP(rux.cd4.tfh, dims=1:30, verbose = TRUE)
+rux.cd4.tfh <- FindNeighbors(rux.cd4.tfh, dims=1:30, verbose=TRUE)
+rux.cd4.tfh <- FindClusters(rux.cd4.tfh, verbose=TRUE, resolution = c(0.2, 0.3, 0.4, 0.5, 0.8, 1))
+
+DefaultAssay(rux.cd4.tfh) <-  "RNA"
+rux.cd4.tfh <- JoinLayers(rux.cd4.tfh)
+DefaultAssay(rux.cd4.tfh) <-  "SCT"
+
+saveRDS(rux.cd4.tfh, file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/data/20_tfh.rds")
+rux.cd4.tfh <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/data/20_tfh.rds")
+
+# log-normalize the RNA assay
+rux.cd4.tfh <- NormalizeData(
+  rux.cd4.tfh,
+  assay = "RNA",
+  normalization.method = "LogNormalize",
+  scale.factor = 10000
+)
+
+#replace + in timepoint
+levels(rux.cd4.tfh$timepoint) <- gsub("\\+", "", levels(rux.cd4.tfh$timepoint))
+levels(rux.cd4.tfh$timepoint)
+
+Idents(rux.cd4.tfh) <- "timepoint"
+table(rux.cd4.tfh$timepoint)
+
+#subset timepoints
+rux.cd4.tfh.T7 <- subset(rux.cd4.tfh, idents = c("T7"), invert=FALSE)
+rux.cd4.tfh.rT3 <- subset(rux.cd4.tfh, idents = c("rT3"), invert=FALSE)
+
+##########################
+# T7
+##########################
+# Split Seurat object by treatment
+rux_obj <- subset(rux.cd4.tfh.T7, subset = treatment == "rux")
+plac_obj <- subset(rux.cd4.tfh.T7, subset = treatment == "placebo")
+
+# Create the "samples" list for SCPA
+samples <- list(
+  Rux = as.matrix(GetAssayData(rux_obj, slot = "data")),
+  Placebo = as.matrix(GetAssayData(plac_obj, slot = "data"))
+)
+
+# Run SCPA using compare_pathways()
+scpa_out <- compare_pathways(
+  samples = samples,
+  pathways = gmt_files,  # optional:  downsample = 500, equalize number of cells
+  min_genes = 15,
+  max_genes = 500
+)
+
+#### View results:
+head(scpa_out)
+
+write.csv(scpa_out, 
+          file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_tfh_T7_Hallmark_treatment.csv")
+
+# Plot rank plot pathways
+plot_rank(scpa_out, pathway = "interferon", population_name = "qval")
+
+# Plot heatmap pathways
+plot_heatmap(scpa_out, 
+             column_names = "Rux vs Placebo",
+             show_row_names = T)
+
+# Filter significant pathways: # not sure if we need to Filter - developers recommend focusing on qval and visualising full dataset
+sig_paths <- scpa_out %>%
+  filter(adjPval < 0.05) %>%
+  arrange(desc(FC))
+
+# WATERFALL PLOTS
+df <- as.data.frame(scpa_out, stringsAsFactors = FALSE)
+
+# Flatten numeric columns
+df$qval <- as.numeric(unlist(df$qval))
+df$Pathway <- as.character(df$Pathway)
+df$adjPval <- as.numeric(unlist(df$adjPval))  # ensure adjusted p-values are numeric
+
+# Define significance
+sig_thresh <- 0.05
+df$significant <- ifelse(df$adjPval < sig_thresh, "Padj < 0.05", "NS")
+
+# Sort pathways by descending qval and set factor levels for waterfall
+df_sorted <- df %>%
+  arrange(desc(qval)) %>%
+  mutate(Pathway = factor(Pathway, levels = rev(Pathway)))  # highest qval on top
+
+# Waterfall plot with color by significance
+p <- ggplot(df_sorted, aes(x = Pathway, y = qval, fill = significant)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Padj < 0.05" = "#7171f4", "NS" = "grey")) +
+  xlab("") +
+  ylab("Qval") +
+  ggtitle("Rux vs Placebo_tfh_T7_Hallmark") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 0.5),  # full black box
+    axis.line = element_blank()  # remove default axis lines
+  )
+
+ggsave(plot=p, height=8, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_tfh_T7_treatment_Hallmark_waterfall.pdf")
+
+##########################
+# rT3
+##########################
+# Split Seurat object by treatment
+rux_obj <- subset(rux.cd4.tfh.rT3, subset = treatment == "rux")
+plac_obj <- subset(rux.cd4.tfh.rT3, subset = treatment == "placebo")
+
+# Create the "samples" list for SCPA
+samples <- list(
+  Rux = as.matrix(GetAssayData(rux_obj, slot = "data")),
+  Placebo = as.matrix(GetAssayData(plac_obj, slot = "data"))
+)
+
+# Run SCPA using compare_pathways()
+scpa_out <- compare_pathways(
+  samples = samples,
+  pathways = gmt_files,
+  min_genes = 15,
+  max_genes = 500
+)
+
+#### View results:
+head(scpa_out)
+
+write.csv(scpa_out, 
+          file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_tfh_rT3_Hallmark_treatment.csv")
+
+# Plot rank plot pathways
+plot_rank(scpa_out, pathway = "interferon", population_name = "qval")
+
+# Plot heatmap pathways
+plot_heatmap(scpa_out, 
+             column_names = "Rux vs Placebo",
+             show_row_names = T)
+
+
+
+# WATERFALL PLOTS
+df <- as.data.frame(scpa_out, stringsAsFactors = FALSE)
+
+# Flatten numeric columns
+df$qval <- as.numeric(unlist(df$qval))
+df$Pathway <- as.character(df$Pathway)
+df$adjPval <- as.numeric(unlist(df$adjPval))  # ensure adjusted p-values are numeric
+
+# Define significance
+sig_thresh <- 0.05
+df$significant <- ifelse(df$adjPval < sig_thresh, "Padj < 0.05", "NS")
+
+# Sort pathways by descending qval and set factor levels for waterfall
+df_sorted <- df %>%
+  arrange(desc(qval)) %>%
+  mutate(Pathway = factor(Pathway, levels = rev(Pathway)))  # highest qval on top
+
+# Waterfall plot with color by significance
+p <- ggplot(df_sorted, aes(x = Pathway, y = qval, fill = significant)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Padj < 0.05" = "#7171f4", "NS" = "grey")) +
+  xlab("") +
+  ylab("Qval") +
+  ggtitle("Rux vs Placebo_tfh_T7_Hallmark") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 0.5),  # full black box
+    axis.line = element_blank()  # remove default axis lines
+  )
+
+ggsave(plot=p, height=8, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_tfh_rT3_treatment_Hallmark_waterfall.pdf")
+
+############################################################################
+# Th1 subset analysis:
+#subset th1.th17, cytotoxic cluster
+table(rux.cd4.harmony$cluster.id.merge.v2)
+Idents(rux.cd4.harmony) <- rux.cd4.harmony$cluster.id.merge
+rux.cd4.th1.th17 <- subset(rux.cd4.harmony, idents = c("Th1"), invert=FALSE)
+ncol(rux.cd4.th1.th17)
+
+# rerun noormalisation on th1.th17 subsetting:
+Layers(rux.cd4.th1.th17[["RNA"]]) # check how layers are split
+
+rux.cd4.th1.th17[["RNA"]] <- split(rux.cd4.th1.th17[["RNA"]], f = rux.cd4.th1.th17$person) #split layers by person
+Layers(rux.cd4.th1.th17[["RNA"]]) #layers are split by person as wanted
+ncol(rux.cd4.th1.th17) #2239 cells
+
+rux.cd4.th1.th17 <- SCTransform(rux.cd4.th1.th17, vars.to.regress = "percent.mt", verbose = TRUE) 
+
+rux.cd4.th1.th17 <- RunPCA(rux.cd4.th1.th17, verbose = TRUE)
+rux.cd4.th1.th17 <- RunUMAP(rux.cd4.th1.th17, dims=1:30, verbose = TRUE)
+rux.cd4.th1.th17 <- FindNeighbors(rux.cd4.th1.th17, dims=1:30, verbose=TRUE)
+rux.cd4.th1.th17 <- FindClusters(rux.cd4.th1.th17, verbose=TRUE, resolution = c(0.2, 0.3, 0.4, 0.5, 0.8, 1))
+
+DefaultAssay(rux.cd4.th1.th17) <-  "RNA"
+rux.cd4.th1.th17 <- JoinLayers(rux.cd4.th1.th17)
+DefaultAssay(rux.cd4.th1.th17) <-  "SCT"
+
+saveRDS(rux.cd4.th1.th17, file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/data/20_th1.th17.cytotoxic.rds")
+rux.cd4.th1.th17 <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/data/20_th1.th17.cytotoxic.rds")
+
+# log-normalize the RNA assay
+rux.cd4.th1 <- NormalizeData(
+  rux.cd4.th1,
+  assay = "RNA",
+  normalization.method = "LogNormalize",
+  scale.factor = 10000
+)
+
+#replace + in timepoint
+levels(rux.cd4.th1$timepoint) <- gsub("\\+", "", levels(rux.cd4.th1$timepoint))
+levels(rux.cd4.th1$timepoint)
+
+Idents(rux.cd4.th1) <- "timepoint"
+table(rux.cd4.th1$timepoint)
+rux.cd4.th1.T7 <- subset(rux.cd4.th1, idents = c("T7"), invert=FALSE)
+rux.cd4.th1.rT3 <- subset(rux.cd4.th1, idents = c("rT3"), invert=FALSE)
+
+##########################
+# T7
+##########################
+# Split Seurat object by treatment
+rux_obj <- subset(rux.cd4.th1.T7, subset = treatment == "rux")
+plac_obj <- subset(rux.cd4.th1.T7, subset = treatment == "placebo")
+
+# Create the "samples" list for SCPA
+samples <- list(
+  Rux = as.matrix(GetAssayData(rux_obj, slot = "data")),
+  Placebo = as.matrix(GetAssayData(plac_obj, slot = "data"))
+)
+
+# Run SCPA using compare_pathways()
+scpa_out <- compare_pathways(
+  samples = samples,
+  pathways = gmt_files,  # optional:  downsample = 500, equalize number of cells
+  min_genes = 15,
+  max_genes = 500
+)
+
+#### View results:
+head(scpa_out)
+#Key points:   qval = magnitude of change (Larger qval = bigger difference in the pathway’s multivariate gene expression distribution between the groups.It does not indicate which group has higher activity on its own.
+# Fold Change (FC) gives direction. (Positive FC → pathway is higher in the first group in your samples list (Rux in your case; Negative FC → pathway is higher in the second group (Placebo in your case)
+
+write.csv(scpa_out, 
+          file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_th1_T7_Hallmark_treatment.csv")
+
+# Plot rank plot pathways
+plot_rank(scpa_out, pathway = "interferon", population_name = "qval")
+
+# Plot heatmap pathways
+plot_heatmap(scpa_out, 
+             column_names = "Rux vs Placebo",
+             show_row_names = T)
+
+
+
+# Filter significant pathways: # not sure if we need to Filter - developers recommend focusing on qval and visualising full dataset
+sig_paths <- scpa_out %>%
+  filter(adjPval < 0.05) %>%
+  arrange(desc(FC))
+
+#########################
+# WATERFALL PLOTS
+df <- as.data.frame(scpa_out, stringsAsFactors = FALSE)
+
+# Flatten numeric columns
+df$qval <- as.numeric(unlist(df$qval))
+df$Pathway <- as.character(df$Pathway)
+df$adjPval <- as.numeric(unlist(df$adjPval))  # ensure adjusted p-values are numeric
+
+# Define significance
+sig_thresh <- 0.05
+df$significant <- ifelse(df$adjPval < sig_thresh, "Padj < 0.05", "NS")
+
+# Sort pathways by descending qval and set factor levels for waterfall
+df_sorted <- df %>%
+  arrange(desc(qval)) %>%
+  mutate(Pathway = factor(Pathway, levels = rev(Pathway)))  # highest qval on top
+
+# Waterfall plot with color by significance
+p <- ggplot(df_sorted, aes(x = Pathway, y = qval, fill = significant)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Padj < 0.05" = "#7171f4", "NS" = "grey")) +
+  xlab("") +
+  ylab("Qval") +
+  ggtitle("Rux vs Placebo_th1_T7_Hallmark") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 0.5),  # full black box
+    axis.line = element_blank()  # remove default axis lines
+  )
+
+ggsave(plot=p, height=8, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_th1_T7_treatment_Hallmark_waterfall.pdf")
+
+##########################
+# rT3
+##########################
+# Split Seurat object by treatment
+rux_obj <- subset(rux.cd4.th1.rT3, subset = treatment == "rux")
+plac_obj <- subset(rux.cd4.th1.rT3, subset = treatment == "placebo")
+
+# Create the "samples" list for SCPA
+samples <- list(
+  Rux = as.matrix(GetAssayData(rux_obj, slot = "data")),
+  Placebo = as.matrix(GetAssayData(plac_obj, slot = "data"))
+)
+
+# Run SCPA using compare_pathways()
+scpa_out <- compare_pathways(
+  samples = samples,
+  pathways = gmt_files,
+  min_genes = 15,
+  max_genes = 500
+)
+
+#### View results:
+head(scpa_out)
+#Key points:   qval = magnitude of change (Larger qval = bigger difference in the pathway’s multivariate gene expression distribution between the groups.It does not indicate which group has higher activity on its own.
+# Fold Change (FC) gives direction. (Positive FC → pathway is higher in the first group in your samples list (Rux in your case; Negative FC → pathway is higher in the second group (Placebo in your case)
+write.csv(scpa_out, 
+          file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_th1_rT3_Hallmark_treatment.csv")
+
+# Plot rank plot pathways
+plot_rank(scpa_out, pathway = "interferon", population_name = "qval")
+
+# Plot heatmap pathways
+plot_heatmap(scpa_out, 
+             column_names = "Rux vs Placebo",
+             show_row_names = T)
+
+
+
+# WATERFALL PLOTS
+df <- as.data.frame(scpa_out, stringsAsFactors = FALSE)
+
+# Flatten numeric columns
+df$qval <- as.numeric(unlist(df$qval))
+df$Pathway <- as.character(df$Pathway)
+df$adjPval <- as.numeric(unlist(df$adjPval))  # ensure adjusted p-values are numeric
+
+# Define significance
+sig_thresh <- 0.05
+df$significant <- ifelse(df$adjPval < sig_thresh, "Padj < 0.05", "NS")
+
+# Sort pathways by descending qval and set factor levels for waterfall
+df_sorted <- df %>%
+  arrange(desc(qval)) %>%
+  mutate(Pathway = factor(Pathway, levels = rev(Pathway)))  # highest qval on top
+
+# Waterfall plot with color by significance
+p <- ggplot(df_sorted, aes(x = Pathway, y = qval, fill = significant)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Padj < 0.05" = "#7171f4", "NS" = "grey")) +
+  xlab("") +
+  ylab("Qval") +
+  ggtitle("Rux vs Placebo_th1_T7_Hallmark") +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_text(size = 10),
+    legend.title = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 0.5),  # full black box
+    axis.line = element_blank()  # remove default axis lines
+  )
+
+ggsave(plot=p, height=8, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/scpa_th1_rT3_treatment_Hallmark_waterfall.pdf")
+
+
+```
+
+## Figure 7A AIM.cd4 umap by clusters
+```{r}
+p <- DimPlot(rux.aim.harmony, group.by = "cluster.id.aim_v2", label = F, repel = T, raster = F,
+             cols = aim_cd4_cols_v2)
+
+ggsave(plot=p, height=6, width=8, dpi=300, 
+       filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/AIM/umap_cluster.id.aim_v2.png")
+ggsave(plot=p, height=6, width=8, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/AIM/umap_cluster.id.aim_v2.pdf")
+```
+
+## Figure 7B Dotplot of AIM.cd4 curated cluster marker genes
+```{r}
+Idents(rux.aim.harmony) <- rux.aim.harmony$cluster.id.aim_v2
+gene.list <- read.csv("L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/AIM/AIM_curated_cluster_marker_genes_v2.csv")
+gene.list <- gene.list[,1]
+
+p <- DotPlot(rux.aim.harmony, features = as.character(gene.list)) + 
+  ylab("Cluster.ID") + 
+  scale_size_continuous(range = c(1, 8)) +  # min/max circle size
+  scale_colour_viridis(option = "viridis", direction = -1) +  # reversed viridis
+  scale_y_discrete(limits = rev(levels(Idents(rux.aim.harmony)))) +  # reversed cluster order
+  theme(
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(face="italic", size = 10, angle = 55, hjust=0.85, vjust=0.8),
+    text = element_text(size=20)
+  )
+
+ggsave(plot=p, height=4, width=15, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/AIM/dotplot_AIM_cluster.marker.curated.updated_viridis_v2.pdf")
+```
+
+
+
+
+
+
+
+
+

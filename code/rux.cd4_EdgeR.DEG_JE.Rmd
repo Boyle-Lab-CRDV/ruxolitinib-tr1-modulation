@@ -1,0 +1,383 @@
+---
+title: "Rux.cd4_EdgeR.DEG"
+author: "Jessica Engel"
+output: html_document
+date: "2026-01-16"
+---
+# # Perform EDGER DEG analysis on placebo vs rux in Tr1, Tfh and Th1 subsets for T+7 and rT+3
+
+## Load libraries
+```{r}
+library(Seurat)
+library(tidyverse)
+library(cowplot)
+library(edgeR)
+library(Matrix)
+library(reshape2)
+library(S4Vectors)
+library(SingleCellExperiment)
+library(pheatmap)
+library(png)
+library(RColorBrewer)
+library(limma)
+library(magrittr)
+library(gridExtra)
+library(knitr)
+library(limma)
+library(ggrepel)
+library(data.table)
+library(grr)
+library(GSEABase)
+library(ggplot2)
+```
+
+## Load functions
+
+```{r}
+# FUNCTION FOR aggregate.Matrix as Matrix.utils package not available:
+#First function:
+dMcast<-function(data,formula,fun.aggregate='sum',value.var=NULL,as.factors=FALSE,factor.nas=TRUE,drop.unused.levels=TRUE)
+{
+  values<-1
+  if(!is.null(value.var))
+    values<-data[,value.var]
+  alltms<-terms(formula,data=data)
+  response<-rownames(attr(alltms,'factors'))[attr(alltms,'response')]
+  tm<-attr(alltms,"term.labels")
+  interactionsIndex<-grep(':',tm)
+  interactions<-tm[interactionsIndex]
+  simple<-setdiff(tm,interactions)
+  i2<-strsplit(interactions,':')
+  newterms<-unlist(lapply(i2,function (x) paste("paste(",paste(x,collapse=','),",","sep='_'",")")))
+  newterms<-c(simple,newterms)
+  newformula<-as.formula(paste('~0+',paste(newterms,collapse='+')))
+  allvars<-all.vars(alltms)
+  data<-data[,c(allvars),drop=FALSE]
+  if(as.factors)
+    data<-data.frame(lapply(data,as.factor))
+  characters<-unlist(lapply(data,is.character))
+  data[,characters]<-lapply(data[,characters,drop=FALSE],as.factor)
+  factors<-unlist(lapply(data,is.factor))
+  #Prevents errors with 1 or fewer distinct levels
+  data[,factors]<-lapply(data[,factors,drop=FALSE],function (x) 
+  {
+    if(factor.nas)
+      if(any(is.na(x)))
+      {
+        levels(x)<-c(levels(x),'NA')
+        x[is.na(x)]<-'NA'
+      }
+    if(drop.unused.levels)
+      if(nlevels(x)!=length(na.omit(unique(x))))
+        x<-factor(as.character(x))
+    y<-contrasts(x,contrasts=FALSE,sparse=TRUE)
+    attr(x,'contrasts')<-y
+    return(x)
+  })
+  #Allows NAs to pass
+  attr(data,'na.action')<-na.pass
+  result<-sparse.model.matrix(newformula,data,drop.unused.levels = FALSE,row.names=FALSE)
+  brokenNames<-grep('paste(',colnames(result),fixed = TRUE)
+  colnames(result)[brokenNames]<-lapply(colnames(result)[brokenNames],function (x) {
+    x<-gsub('paste(',replacement='',x=x,fixed = TRUE) 
+    x<-gsub(pattern=', ',replacement='_',x=x,fixed=TRUE) 
+    x<-gsub(pattern='_sep = \"_\")',replacement='',x=x,fixed=TRUE)
+    return(x)
+  })
+  
+  result<-result*values
+  if(isTRUE(response>0))
+  {
+    responses=all.vars(terms(as.formula(paste(response,'~0'))))
+    result<-aggregate.Matrix(result,data[,responses,drop=FALSE],fun=fun.aggregate)
+  }
+  return(result)
+}
+
+#Second function
+aggregate.Matrix<-function(x,groupings=NULL,form=NULL,fun='sum',...)
+{
+  if(!is(x,'Matrix'))
+    x<-Matrix(as.matrix(x),sparse=TRUE)
+  if(fun=='count')
+    x<-x!=0data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABIAAAASCAYAAABWzo5XAAAAbElEQVR4Xs2RQQrAMAgEfZgf7W9LAguybljJpR3wEse5JOL3ZObDb4x1loDhHbBOFU6i2Ddnw2KNiXcdAXygJlwE8OFVBHDgKrLgSInN4WMe9iXiqIVsTMjH7z/GhNTEibOxQswcYIWYOR/zAjBJfiXh3jZ6AAAAAElFTkSuQmCC
+  groupings2<-groupings
+  if(!is(groupings2,'data.frame'))
+    groupings2<-as(groupings2,'data.frame')
+  groupings2<-data.frame(lapply(groupings2,as.factor))
+  groupings2<-data.frame(interaction(groupings2,sep = '_'))
+  colnames(groupings2)<-'A'
+  if(is.null(form))
+    form<-as.formula('~0+.')
+  form<-as.formula(form)
+  mapping<-dMcast(groupings2,form)
+  colnames(mapping)<-substring(colnames(mapping),2)
+  result<-t(mapping) %*% x
+  if(fun=='mean')
+    result@x<-result@x/(aggregate.Matrix(x,groupings2,fun='count'))@x
+  attr(result,'crosswalk')<-grr::extract(groupings,match(rownames(result),groupings2$A))
+  return(result)
+}
+
+```
+
+## Load data and subset Tr1, Tfh, Th1
+```{r}
+rux.cd4.harmony <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/25_rux.cd4_forpublication.rds")
+
+#subset Tr1, Tfh, Th1
+table(rux.cd4.harmony$cluster.id.merge.v2)
+Idents(rux.cd4.harmony) <- rux.cd4.harmony$cluster.id.merge.v2
+
+rux.cd4.tr1 <- subset(rux.cd4.harmony, idents = c("Tr1"), invert=FALSE)
+rux.cd4.tfh <- subset(rux.cd4.harmony, idents = c("Tfh"), invert=FALSE)
+rux.cd4.th1 <- subset(rux.cd4.harmony, idents = c("Th1"), invert=FALSE)
+
+```
+
+## Cleanup data - perform for Tr1 - repeat for Tfh, Th1
+```{r}
+#remove doublet and Negative from treatment group if not already removed
+rux.cd4.tr1$treatment <- factor(rux.cd4.tr1$treatment)
+levels(rux.cd4.tr1$treatment) 
+
+rux.cd4.tr1$person <- factor(rux.cd4.tr1$person)
+levels(rux.cd4.tr1$person) 
+
+#replace + in timepoint
+levels(rux.cd4.tr1$timepoint) <- gsub("\\+", "", levels(rux.cd4.tr1$timepoint))
+levels(rux.cd4.tr1$timepoint)
+```
+
+## Subset timepoints of interest
+```{r}
+Idents(rux.cd4.tr1) <- "timepoint"
+table(rux.cd4.tr1$timepoint)
+
+rux.cd4.tr1.T7 <- subset(rux.cd4.tr1, idents = c("T7"), invert=FALSE)
+rux.cd4.tr1.rT3 <- subset(rux.cd4.tr1, idents = c("rT3"), invert=FALSE)
+```
+
+## Edge R placebo vs rux for Tr1 at T7
+```{r}
+rux.cd4 <- rux.cd4.tr1.T7 # rename 
+
+# EXTRACT COUNTS AND METADATA
+
+#Set up metadata as desired for aggregation and DE analysis
+#use person and timepoint
+head(rux.cd4)
+rux.cd4$sample_id <- paste0(rux.cd4$person, "_", rux.cd4$timepoint)
+rux.cd4$group <- rux.cd4$treatment
+rux.cd4$cluster_id <- rux.cd4$cluster.id.merge # don't really want this cluster_id information as all from the original Tr1 cluster
+
+#extract raw counts and metadata to create SingleCellExperiment object
+counts <- GetAssayData(rux.cd4, layer = "counts", assay = "RNA")
+metadata <- rux.cd4@meta.data
+#Create single cell experiment object
+sce <- SingleCellExperiment(assays=list(counts=counts),
+                            colData = metadata)
+
+# Explore the cellular metadata for the dataset
+### (number of cells) * (number of meta columns) = 1162 | 31
+dim(colData(sce))
+
+#####################################
+# EXPLORE THE COUNTS DATA
+#Explore the raw counts for the dataset
+
+#Check the assays present(only counts)
+assays(sce)
+
+##Explore the raw counts for the dataset
+## (genes) * (cells)
+dim(counts(sce)) #21349 genes | 944 cells
+
+#####################################
+# ADDITIONAL QC FILTERING 
+# we have already filtered our cells, here we are removing lowly expressed genes that have less than 10 cells with any counts
+
+#Remove lowly expressed genes that have less than 10 cells with any counts
+sce <- sce[rowSums(counts(sce) > 1) >= 10, ]
+
+# (genes) x (cells)
+dim(sce) #6996 genes / 944 cells
+
+#####################################
+## PREPARING DATA FOR COUNT AGGREGATION
+
+#Named vector of sample names
+sids <- purrr::set_names(levels(as.factor(sce$sample_id)))
+
+#Total number of samples
+# 8 donors, 10 timepoints each = 80
+ns <- length(sids)
+
+#Generate sample level metadata
+
+##Determine the number of cells per sample
+#table(sce$sample_id)
+
+##Check columns exist
+table(sce$sample_id)
+table(sce$group) 
+
+# Turn class "table" into a named vector of cells per sample
+n_cells <- table(sce$sample_id) %>% as.vector()
+names(n_cells) <- names(table(sce$sample_id))
+
+##Match the named vector with metadata to combine it
+m <- match(names(n_cells), sce$sample_id)
+
+#Create the sample level metadata by selelcting specific columns
+ei <- data.frame(colData(sce)[m,],
+                 n_cells, row.names = NULL) %>%
+  dplyr::select("sample_id", "group", "n_cells")
+
+kable(ei)
+
+# COUNT AGGREGATION
+#Aggregate the counts per sample_id and group(timepoint)
+
+# Subset metadata to only include the sample IDS and treatment to aggregate across
+groups <- colData(sce)[,c("group", "sample_id")]
+groups$sample_id <- factor(groups$sample_id)
+
+pb <- aggregate.Matrix(t(counts(sce)),
+                       groupings = groups, fun = "sum")
+
+#class(pb)
+#dim(pb)
+pb[1:8, 1:8]
+  
+# Explore the different components of list
+class(pb) #list
+str(pb) # split by cluster
+
+#####################################
+## PRINT CLUSTER-SAMPLE TABLE
+options(width = 100)
+kable(table(sce$cluster_id, sce$sample_id))
+
+#####################################
+## STARTING EDGE R ANALYSIS
+
+# Now create SingleCellExperiment
+pbc <- SingleCellExperiment(assays = pb)
+
+#####################################
+#RUN DIFFERENTIAL EXPRESSION ANALYSIS
+
+#construct design and contrast matrix ------------------ CHECK WHAT ei$ should be = should this be $group which is treatment?
+(design <- model.matrix(~ 0 + ei$group) %>%
+    set_rownames(ei$sample_id) %>%
+    set_colnames(levels(factor(ei$group))))
+
+#A positive FC is increased expression in the ko compared to het
+(contrast <- makeContrasts("rux-placebo", levels = design))
+
+# Run edge R on pbc sce 
+counts_mat <- t(assays(pbc)[[1]]) # transpose so that genes = rows, and samples = columns
+colnames(counts_mat) <- sub("^(placebo|rux)_", "", colnames(counts_mat))
+
+# Create DGEList
+dge <- DGEList(counts = counts_mat, remove.zeros = TRUE)
+
+# Normalise and estimate dispersion
+dge <- calcNormFactors(dge)
+dge <- estimateDisp(dge, design)
+
+# Fit model
+fit <- glmQLFit(dge, design)
+qlf <- glmQLFTest(fit, contrast = contrast)
+
+# Get results
+res <- topTags(qlf, n = Inf, sort.by = "none")$table %>%
+  dplyr::mutate(gene = rownames(.)) %>%
+  dplyr::rename(p_val = PValue, p_adj = FDR)
+
+# Results filtering and overview
+
+# filter p value < 0.05
+res_fil_sig <- res %>%
+  dplyr::filter(p_val < 0.05) %>%
+  dplyr::arrange(p_val)
+
+# filter p value < 0.05, |logFC| > 1 & sort by FDR
+res_fil <- res %>%
+  dplyr::filter(p_val < 0.05, abs(logFC) > 1) %>%
+  dplyr::arrange(p_val)
+
+#####################################
+#WRITE RESULTS TO FILE
+
+#all genes
+write.csv(res, file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tr1_T7_EdgeR_ruxvsPlacebo_allgenes.csv")
+
+#>0.05
+write.csv(res_fil_sig, file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tr1_T7_EdgeR_ruxvsPlacebo_sigGenes.csv")
+
+#>0.05, logFC>1
+write.csv(res, file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tr1_T7_EdgeR_ruxvsPlacebo_sigGenes.logFC1.csv")
+```
+
+## Volcano plot visualisations of DEG results of rux vs placebo Tr1 T7
+```{r}
+tr1.t7 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tr1_T7_EdgeR_ruxvsPlacebo_allgenes.csv")
+
+#T7
+# Add a column for significance labeling
+tr1.t7$significant <- with(tr1.t7, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+
+# Volcano plot
+sig_genes <- tr1.t7[tr1.t7$p_val < 0.05 & abs(tr1.t7$logFC) > 1, ] # genes to label
+
+#colour up and down regulated
+tr1.t7$direction <- with(tr1.t7, ifelse(p_val < 0.05 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+
+p <- ggplot(tr1.t7, aes(x = logFC, y = -log10(p_val))) +
+  geom_point(aes(color = direction), alpha = 0.6) +
+  scale_color_manual(values = c("RUX" = "red", "Placebo" = "blue", "NS" = "grey")) +
+  
+  # Labels with lines for all genes
+  ggrepel::geom_text_repel(
+    data = sig_genes,
+    aes(label = gene),
+    size = 3,
+    max.overlaps = Inf,          # allow all labels
+    min.segment.length = 0,      
+    box.padding = 0.5,
+    point.padding = 0.2,
+    segment.color = "black",
+    segment.size = 0.3,
+    nudge_x = 0.05,              
+    nudge_y = 0.05,
+    force = 1.5                 
+  ) +
+  
+  # Fold-change and significance threshold lines
+  geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  
+  labs(
+    title = "T+7 TR1 Rux vs Placebo EdgeR",
+    x = "Log2 Fold Change",
+    y = "-Log10 p-value",
+    color = "Signif"
+  ) +
+  
+  # Theme with full border lines
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.6),
+    axis.line = element_line(color = "black", linewidth = 0.4),
+    axis.ticks = element_line(color = "black")
+  )
+
+p
+
+ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/tr1_T7_EdgeR_VolcanoPlot.pdf")
+```
+
+## Repeat as above for Tr1 rT3, Tfh and Th1 subsets
