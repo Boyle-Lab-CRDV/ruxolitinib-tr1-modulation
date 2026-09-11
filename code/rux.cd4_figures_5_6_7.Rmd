@@ -1,7 +1,7 @@
 ---
 title: "rux.cd4_Figures_5_6_7"
 author: "Jessica Engel"
-date: "2026-01-14"
+date: "2026-09-07"
 output: html_document
 ---
 
@@ -295,15 +295,15 @@ group_b <- c("D577", "D664", "D245", "D284")
 table_data_donor$group <- ifelse(table_data_donor$donor %in% group_a, "placebo",
                                  ifelse(table_data_donor$donor %in% group_b, "rux", NA))
 
-group_means <- table_data_donor %>%
+group_medians <- table_data_donor %>%
   group_by(timepoint, cluster, group) %>%
-  summarise(mean_percent = mean(percent_total), .groups = "drop")
+  summarise(median_percent = median(percent_total), .groups = "drop")
 
 #plot primary first
 table_data_donor_primary <- table_data_donor %>%
   filter(timepoint %in% c("I", "T", "T+3", "T+7", "T+20"))
 
-group_means_primary <- group_means %>%
+group_means_primary <- group_medians %>%
   filter(timepoint %in% c("I", "T", "T+3", "T+7", "T+20"))
 
 
@@ -318,7 +318,7 @@ p_combined <- ggplot() +
   # Group average lines
   geom_line(
     data = group_means_primary,
-    aes(x = timepoint, y = mean_percent, color = group, group = interaction(cluster, group)),
+    aes(x = timepoint, y = median_percent, color = group, group = interaction(cluster, group)),
     size = 1.5,
     linetype = "solid"
   ) +
@@ -346,13 +346,12 @@ p_combined <- ggplot() +
 
 p_combined
 
-ggsave(plot=p_combined,height=7,width=20,dpi=300,filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/cluster.freq.graphs_cluster.id.merge.v2_average_PRIMARY.pdf")
 
 #plot secondary
 table_data_donor_primary <- table_data_donor %>%
   filter(timepoint %in% c("rI", "rT", "rT+3", "rT+7", "rT+20"))
 
-group_means_primary <- group_means %>%
+group_means_primary <- group_medians %>%
   filter(timepoint %in% c("rI", "rT", "rT+3", "rT+7", "rT+20"))
 
 
@@ -367,7 +366,7 @@ p_combined <- ggplot() +
   # Group average lines
   geom_line(
     data = group_means_primary,
-    aes(x = timepoint, y = mean_percent, color = group, group = interaction(cluster, group)),
+    aes(x = timepoint, y = median_percent, color = group, group = interaction(cluster, group)),
     size = 1.5,
     linetype = "solid"
   ) +
@@ -394,8 +393,6 @@ p_combined <- ggplot() +
   )
 
 p_combined
-
-ggsave(plot=p_combined,height=7,width=20,dpi=300,filename="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/bulk.cd4/cluster.freq.graphs_cluster.id.merge.v2_average_SECONDARY.pdf")
 
 
 ```
@@ -454,14 +451,14 @@ tr1.rt3 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integr
 
 #T7
 # Add a column for significance labeling
-tr1.t7$significant <- with(tr1.t7, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+tr1.t7$significant <- with(tr1.t7, ifelse(p_val < 0.01, "Significant", "Not Significant"))
 
 # Volcano plot
-sig_genes <- tr1.t7[tr1.t7$p_val < 0.05 & abs(tr1.t7$logFC) > 1, ] # genes to label
+sig_genes <- tr1.t7[tr1.t7$p_val < 0.01 & abs(tr1.t7$logFC) > 1, ] # genes to label
 
 #colour up and down regulated
-tr1.t7$direction <- with(tr1.t7, ifelse(p_val < 0.05 & logFC > 0, "RUX",
-                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+tr1.t7$direction <- with(tr1.t7, ifelse(p_val < 0.01 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.01 & logFC < 0, "Placebo", "NS")))
 
 p <- ggplot(tr1.t7, aes(x = logFC, y = -log10(p_val))) +
   geom_point(aes(color = direction), alpha = 0.6) +
@@ -485,7 +482,7 @@ p <- ggplot(tr1.t7, aes(x = logFC, y = -log10(p_val))) +
   
   # Fold-change and significance threshold lines
   geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed", color = "#736d6d") +
   
   labs(
     title = "T+7 TR1 Rux vs Placebo EdgeR",
@@ -508,14 +505,14 @@ ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.0
 
 #rT3
 # Add a column for significance labeling
-tr1.rt3$significant <- with(tr1.rt3, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+tr1.rt3$significant <- with(tr1.rt3, ifelse(p_val < 0.01, "Significant", "Not Significant"))
 
 # Volcano plot
-sig_genes <- tr1.rt3[tr1.rt3$p_val < 0.05 & abs(tr1.rt3$logFC) >1, ] # genes to label
+sig_genes <- tr1.rt3[tr1.rt3$p_val < 0.01 & abs(tr1.rt3$logFC) >1, ] # genes to label
 
 #colour up and down regulated
-tr1.rt3$direction <- with(tr1.rt3, ifelse(p_val < 0.05 & logFC > 0, "RUX",
-                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+tr1.rt3$direction <- with(tr1.rt3, ifelse(p_val < 0.01 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.01 & logFC < 0, "Placebo", "NS")))
 
 library(ggplot2)
 library(ggrepel)
@@ -542,7 +539,7 @@ p <- ggplot(tr1.rt3, aes(x = logFC, y = -log10(p_val))) +
   
   # Fold-change and significance threshold lines
   geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed", color = "#736d6d") +
   
   # Labels and title
   labs(
@@ -570,14 +567,14 @@ tfh.rt3 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integr
 
 #T7
 # Add a column for significance labeling
-tfh.t7$significant <- with(tfh.t7, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+tfh.t7$significant <- with(tfh.t7, ifelse(p_val < 0.01, "Significant", "Not Significant"))
 
 # Volcano plot
-sig_genes <- tfh.t7[tfh.t7$p_val < 0.05 & abs(tfh.t7$logFC) > 1, ] # genes to label
+sig_genes <- tfh.t7[tfh.t7$p_val < 0.01 & abs(tfh.t7$logFC) > 1, ] # genes to label
 
 #colour up and down regulated
-tfh.t7$direction <- with(tfh.t7, ifelse(p_val < 0.05 & logFC > 0, "RUX",
-                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+tfh.t7$direction <- with(tfh.t7, ifelse(p_val < 0.01 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.01 & logFC < 0, "Placebo", "NS")))
 
 p <- ggplot(tfh.t7, aes(x = logFC, y = -log10(p_val))) +
   geom_point(aes(color = direction), alpha = 0.6) +
@@ -601,7 +598,7 @@ p <- ggplot(tfh.t7, aes(x = logFC, y = -log10(p_val))) +
   
   # Fold-change and significance threshold lines
   geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed", color = "#736d6d") +
   
   labs(
     title = "T+7 Tfh.TfhID3.Th17Tfh Rux vs Placebo EdgeR",
@@ -624,14 +621,14 @@ ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.0
 
 # rT3
 # Add a column for significance labeling
-tfh.rt3$significant <- with(tfh.rt3, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+tfh.rt3$significant <- with(tfh.rt3, ifelse(p_val < 0.01, "Significant", "Not Significant"))
 
 # Volcano plot
-sig_genes <- tfh.rt3[tfh.rt3$p_val < 0.05 & abs(tfh.rt3$logFC) > 1, ] # genes to label
+sig_genes <- tfh.rt3[tfh.rt3$p_val < 0.01 & abs(tfh.rt3$logFC) > 1, ] # genes to label
 
 #colour up and down regulated
-tfh.rt3$direction <- with(tfh.rt3, ifelse(p_val < 0.05 & logFC > 0, "RUX",
-                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+tfh.rt3$direction <- with(tfh.rt3, ifelse(p_val < 0.01 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.01 & logFC < 0, "Placebo", "NS")))
 
 p <- ggplot(tfh.rt3, aes(x = logFC, y = -log10(p_val))) +
   geom_point(aes(color = direction), alpha = 0.6) +
@@ -655,7 +652,7 @@ p <- ggplot(tfh.rt3, aes(x = logFC, y = -log10(p_val))) +
   
   # Fold-change and significance threshold lines
   geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed", color = "#736d6d") +
   
   labs(
     title = "rT+3 Tfh.TfhID3.Th17Tfh Rux vs Placebo EdgeR",
@@ -682,14 +679,14 @@ th1.rt3 <- read.csv(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integr
 
 #T7
 # Add a column for significance labeling
-th1.t7$significant <- with(th1.t7, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+th1.t7$significant <- with(th1.t7, ifelse(p_val < 0.01, "Significant", "Not Significant"))
 
 # Volcano plot
-sig_genes <- th1.t7[th1.t7$p_val < 0.05 & abs(th1.t7$logFC) > 1, ] # genes to label
+sig_genes <- th1.t7[th1.t7$p_val < 0.01 & abs(th1.t7$logFC) > 1, ] # genes to label
 
 #colour up and down regulated
-th1.t7$direction <- with(th1.t7, ifelse(p_val < 0.05 & logFC > 0, "RUX",
-                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+th1.t7$direction <- with(th1.t7, ifelse(p_val < 0.01 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.01 & logFC < 0, "Placebo", "NS")))
 
 p <- ggplot(th1.t7, aes(x = logFC, y = -log10(p_val))) +
   geom_point(aes(color = direction), alpha = 0.6) +
@@ -713,7 +710,7 @@ p <- ggplot(th1.t7, aes(x = logFC, y = -log10(p_val))) +
   
   # Fold-change and significance threshold lines
   geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed", color = "#736d6d") +
   
   labs(
     title = "T+7 th1.cytotoxic.th1th17 Rux vs Placebo EdgeR",
@@ -736,14 +733,14 @@ ggsave(plot=p, height=6, width=7, dpi=300, filename="L:/Lab_ChrisE/Jess/R/JE23.0
 
 #rT3
 # Add a column for significance labeling
-th1.rt3$significant <- with(th1.rt3, ifelse(p_val < 0.05, "Significant", "Not Significant"))
+th1.rt3$significant <- with(th1.rt3, ifelse(p_val < 0.01, "Significant", "Not Significant"))
 
 # Volcano plot
-sig_genes <- th1.rt3[th1.rt3$p_val < 0.05 & abs(th1.rt3$logFC) >1, ] # genes to label
+sig_genes <- th1.rt3[th1.rt3$p_val < 0.01 & abs(th1.rt3$logFC) >1, ] # genes to label
 
 #colour up and down regulated
-th1.rt3$direction <- with(th1.rt3, ifelse(p_val < 0.05 & logFC > 0, "RUX",
-                                        ifelse(p_val < 0.05 & logFC < 0, "Placebo", "NS")))
+th1.rt3$direction <- with(th1.rt3, ifelse(p_val < 0.01 & logFC > 0, "RUX",
+                                        ifelse(p_val < 0.01 & logFC < 0, "Placebo", "NS")))
 
 p <- ggplot(th1.rt3, aes(x = logFC, y = -log10(p_val))) +
   geom_point(aes(color = direction), alpha = 0.6) +
@@ -767,7 +764,7 @@ p <- ggplot(th1.rt3, aes(x = logFC, y = -log10(p_val))) +
   
   # Fold-change and significance threshold lines
   geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "#736d6d") +
-  geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "#736d6d") +
+  geom_hline(yintercept = -log10(0.01), linetype = "dashed", color = "#736d6d") +
   
   # Labels and title
   labs(
