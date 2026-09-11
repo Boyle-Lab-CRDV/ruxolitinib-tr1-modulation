@@ -1,0 +1,316 @@
+---
+title: "rux.cd4_supp.figure_9_and_11"
+author: "Jessica Engel"
+date: "2026-09-03"
+output: html_document
+---
+
+## Libraries
+
+```{r}
+library(Seurat)
+library(ggplot2)
+library(patchwork)
+library(cowplot)
+library(ggpubr)
+library(sctransform)
+library(presto)
+library(dplyr)
+library(RColorBrewer)
+library(glmGamPoi)
+library(devtools)
+library(harmony)
+library(forcats)
+library(viridis)
+library(readr)
+library(UpSetR)
+library(ggpubr)
+library(ggrepel)
+library(scales)
+```
+
+## Default cluster colours and orders
+
+```{r }
+bulk.cd4_cluster_cols_v2 <- c(
+  "Th17"           = "#87D7A2",  
+  "Th1"            = "#F1D0C0", 
+  "Tfh"            = "#8CBDE0",  
+  "Tcm"            = "#EAA7C4",  
+  "Tr1"            = "#E58AB1",  
+  "cycling"        = "#F2B996",  
+  "Tregs"          = "#C8E0C4",  
+  "Th2"            = "#F9D37E",  
+  "ISGs"           = "#F4A87F",  
+  "HSP.stress"     = "#D6E29D"   
+)
+
+aim_cd4_cols_v2 <- c(
+  "AIM.Activated.CD4"   = "#f08989",  
+  "AIM.Tfh"             = "#5C8ED9",  
+  "AIM.Th1"             = "#61B86D",  
+  "AIM.Tr1"             = "#EEDD6E",  
+  "AIM.Th17"            = "#E68DB7",  
+  "AIM.ISGs"            = "#63B2AA",  
+  "AIM.Treg"            = "#9AA6D1",  
+  "AIM.Th2"             = "#BFD77B"   
+)
+
+treatment_col <- c("placebo" = "#5c62d6", "rux" = "#bf2c34")
+
+col_assay <- c(
+  "bulk" = "#4281a4", # light periwinkle blue
+  "AIM" = "#FFD6A5"  # soft peach
+)
+
+#factor donor levels:
+donor_levels <- c("D411", "D390", "D591", "D622", "D577", "D664", "D245", "D284")
+rux.cd4.harmony$person <- factor(rux.cd4.harmony$person, levels = donor_levels)
+
+donor_col <- c("D411"="#E76F51", "D390"="#2A9D8F", "D591"="#E9C46A", "D622" = "#264653", 
+               "D577"="#F4A261", "D664"="#8AB17D", "D245"="#577590", "D284" = "#B56576")
+
+```
+
+## Load data
+
+```{r }
+# bulk.cd4 + AIM.cd4 integrated object
+rux.pint <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/3_rux.cd4_rux.aim_merged_SCTbyperson_harmonybyperson_remc10_cluster.id.FINAL.rds")
+
+# bulk.cd4
+rux.cd4.harmony <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/25_rux.cd4_forpublication.rds")
+
+# AIM.cd4
+rux.aim.harmony <- readRDS(file ="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/9_rux.aim_SCTbyperson_cluster.id.aim_v2_forPublication.rds")
+
+```
+
+## Supplementary Figure 9C
+```{r}
+#UMAP by person post-harmony integration:
+DimPlot(rux.pint, group.by = "person", cols = donor_col)
+```
+
+## Supplementary Figure 9D
+
+```{r}
+rux.cd4.harmony.old <- readRDS(file = "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/20_rux.cd4_SCTbyperson_harmony_DR_updated.rds")
+
+#bulk CD4 UMAP cluster resolution 1.0:
+DimPlot(rux.cd4.harmony.old, group.by = "harmony_snn_res.1", label = T)
+
+#bulk CD4 UMAP cluster resolution 1.2:
+DimPlot(rux.cd4.harmony.old, group.by = "harmony_snn_res.1.2", label = T)
+```
+
+## Supplementary Figure 9E
+
+```{r}
+#QC violin plots
+VlnPlot(rux.cd4.harmony, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "percent.ribo"), cols = bulk.cd4_cluster_cols_v2, group.by = "cluster.id.merge.v2",
+        pt.size = 0, ncol = 2)
+```
+
+
+## Supplementary Figure 9F
+
+```{r}
+#stacked bar plots of donor proportion per timepoint per cluster
+meta <- rux.cd4.harmony@meta.data
+
+plot_data <- meta %>%
+  count(timepoint, cluster.id.merge.v2, person, name = "cell_count") %>%
+  group_by(timepoint, cluster.id.merge.v2) %>%
+  mutate(proportion = cell_count / sum(cell_count)) %>%
+  ungroup()
+
+ggplot(plot_data, aes(
+  x = cluster.id.merge.v2,
+  y = proportion,
+  fill = person
+)) +
+  geom_col(width = 0.8) +
+  facet_wrap(~timepoint, ncol = 5) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1),
+    expand = c(0, 0)
+  ) +
+  scale_fill_manual(values = donor_col) +
+  labs(
+    x = "Cluster",
+    y = "Proportion",
+    fill = "Donor"
+  ) +
+  theme_classic()
+```
+
+
+## Supplementary Figure 9G
+
+```{r}
+#stacked bar plots of treatment proportion per timepoint per cluster
+meta <- rux.cd4.harmony@meta.data
+
+plot_data <- meta %>%
+  count(timepoint, cluster.id.merge.v2, treatment, name = "cell_count") %>%
+  group_by(timepoint, cluster.id.merge.v2) %>%
+  mutate(proportion = cell_count / sum(cell_count)) %>%
+  ungroup()
+
+ggplot(plot_data, aes(
+  x = cluster.id.merge.v2,
+  y = proportion,
+  fill = treatment
+)) +
+  geom_col(width = 0.8) +
+  facet_wrap(~timepoint, ncol = 5) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1),
+    expand = c(0, 0)
+  ) +
+  scale_fill_manual(values = treatment_col) +
+  labs(
+    x = "Cluster",
+    y = "Proportion",
+    fill = "treatment"
+  ) +
+  theme_classic()
+```
+
+## Supplementary Figure 9H
+
+```{r}
+#stacked bar plots of cluster proportion per timepoint per donor
+meta <- rux.cd4.harmony@meta.data
+
+plot_data <- meta %>%
+  count(timepoint, cluster.id.merge.v2, person, name = "cell_count") %>%
+  group_by(timepoint, person) %>%
+  mutate(proportion = cell_count / sum(cell_count)) %>%
+  ungroup()
+
+ggplot(plot_data, aes(
+  x = timepoint,
+  y = proportion,
+  fill = cluster.id.merge.v2
+)) +
+  geom_col(width = 0.8) +
+  facet_wrap(~person, ncol = 4) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1),
+    expand = c(0, 0)
+  ) +
+  scale_fill_manual(values = bulk.cd4_cluster_cols_v2) +
+  labs(
+    x = "Timepoint",
+    y = "Proportion of cells",
+    fill = "Cluster"
+  ) +
+  theme_classic()
+```
+
+
+
+## Supplementary Figure 11A
+
+```{r}
+rux.aim.harmony.old <- readRDS(file ="L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/data/6_rux.aim_SCTbyperson_cluster.id.aim_v2.rds")
+
+#UMAP of clustering resolution
+DimPlot(rux.aim.harmony.old, group.by = "harmony_snn_res.0.5", label = T )
+```
+
+
+## Supplementary Figure 11B
+
+```{r}
+#AIM QC violin plots
+VlnPlot(rux.aim.harmony, features = c("nCount_RNA", "nFeature_RNA", "percent.mt", "percent.ribo"), cols = aim_cd4_cols_v2, group.by = "cluster.id.aim_v2",
+        pt.size = 0, ncol = 2)
+```
+
+## Supplementary Figure 11C
+
+```{r}
+#AIM UPset plot cluster marker genes
+### Upset plot to look at overlap between cluster marker genes between clusters
+
+## NO LOGFC CUTOFF
+folder <- "L:/Lab_ChrisE/Jess/R/JE23.08_rux_10x/bulk_AIM_integrated/outputs/updated_cleanup_remc10/AIM/cluster.markers_v2/"
+
+file_list <- list.files(path = folder, pattern = "\\.csv$", full.names = TRUE)
+
+gene_lists <- list()
+
+for (f in file_list) {
+  # Extract clean cluster name
+  cluster_name <- gsub("cluster\\.marker\\.genes_cluster\\.id\\.merge_|\\.filtered\\.csv$", "", basename(f))
+  
+  # Read CSV
+  df <- read_csv(f, col_names = FALSE)
+  colnames(df)[1:6] <- c("gene", "p_val", "avg_log2FC", "pct.1", "pct.2", "p_val_adj")
+  
+  # Keep only positive logFC genes
+  genes <- df %>%
+    filter(avg_log2FC > 0) %>%
+    pull(gene)
+  
+  # Remove any NA values
+  genes <- genes[!is.na(genes)]
+  
+  gene_lists[[cluster_name]] <- genes
+}
+
+# Check simplified list
+str(gene_lists, max.level = 1)
+
+# Plot UpSet plot for all clusters
+
+upset(
+  fromList(gene_lists),
+  order.by = "freq", 
+  mainbar.y.label = "Shared positive cluster marker genes",
+  sets.x.label = "No.DEGs (avg_log2FC > 0)",
+  nsets = length(gene_lists)
+)
+
+```
+
+## Supplementary Figure 11D
+
+```{r}
+#AIM stacked bar plots of cluster proportion per timepoint per treatment
+meta <- rux.aim.harmony@meta.data
+
+plot_data <- meta %>%
+  count(timepoint, cluster.id.aim_v2, treatment, name = "cell_count") %>%
+  group_by(timepoint, treatment) %>%
+  mutate(proportion = cell_count / sum(cell_count)) %>%
+  ungroup()
+
+ggplot(plot_data, aes(
+  x = treatment,
+  y = proportion,
+  fill = cluster.id.aim_v2
+)) +
+  geom_col(width = 0.8) +
+  facet_wrap(~timepoint, ncol = 9) +
+  scale_y_continuous(
+    labels = scales::percent_format(accuracy = 1),
+    limits = c(0, 1),
+    expand = c(0, 0)
+  ) +
+  scale_fill_manual(values = aim_cd4_cols_v2) +
+  labs(
+    x = "Treatment",
+    y = "Proportion of cells",
+    fill = "Cluster"
+  ) +
+  theme_classic()
+```
+
+
